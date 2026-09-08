@@ -1,0 +1,12 @@
+# Kedro Data
+data/*
+!data/01_raw/
+!data/01_raw/input_texts.csv
+
+# Python and Kedro generated files
+__pycache__/
+*.pkl
+*.pt
+*.pth
+.kedro.yml
+logs/
