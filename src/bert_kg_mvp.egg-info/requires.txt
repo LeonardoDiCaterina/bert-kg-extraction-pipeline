@@ -1,0 +1,4 @@
+kedro>=1.5.0
+torch
+transformers
+pandas

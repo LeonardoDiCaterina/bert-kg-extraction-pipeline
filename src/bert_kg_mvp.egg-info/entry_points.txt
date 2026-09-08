@@ -1,0 +1,2 @@
+[kedro.project]
+bert_kg_mvp = bert_kg_mvp.pipeline_registry:register_pipelines
