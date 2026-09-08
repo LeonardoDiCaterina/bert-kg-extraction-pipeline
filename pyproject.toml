@@ -1,0 +1,24 @@
+[tool.kedro]
+package_name = "bert_kg_mvp"
+project_name = "bert_kg_mvp"
+kedro_init_version = "1.5.0"
+source_dir = "src"
+tools = []
+example_pipeline = false
+
+[project]
+name = "bert_kg_mvp"
+version = "0.1.0"
+description = "BERT to Knowledge Graph MVP"
+dependencies = [
+    "kedro>=1.5.0",
+    "torch",
+    "transformers",
+    "pandas"
+]
+
+[project.entry-points."kedro.project"]
+bert_kg_mvp = "bert_kg_mvp.pipeline_registry:register_pipelines"
+
+[tool.kedro_telemetry]
+project_id = "76d39fe6acc349b8b9924b5f5b212a32"

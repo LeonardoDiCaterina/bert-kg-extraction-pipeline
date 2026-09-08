@@ -1,0 +1,13 @@
+model_name: "bert-base-uncased"
+max_seq_len: 128
+d_model: 768
+entity_types:
+  - "PERSON"
+  - "ORGANIZATION"
+  - "LOCATION"
+relation_types:
+  - "WORKS_FOR"
+  - "LOCATED_IN"
+  - "FOUNDED_BY"
+epochs: 150
+learning_rate: 0.00005

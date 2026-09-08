@@ -1,0 +1,19 @@
+raw_texts:
+  type: pandas.CSVDataset
+  filepath: data/01_raw/input_texts.csv
+
+processed_dataset:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/processed_data.pkl
+
+kg_tokenizer:
+  type: pickle.PickleDataset
+  filepath: data/03_primary/tokenizer.pkl
+
+kg_inference_output:
+  type: pandas.CSVDataset
+  filepath: data/07_model_output/predicted_kgs.csv
+
+trained_model:
+  type: pickle.PickleDataset
+  filepath: data/06_models/trained_kg_model.pkl
