@@ -1,8 +1,8 @@
-import torch
-from transformers import BertTokenizer
-from datasets import load_dataset
+import json
 import os
+import torch
 import pandas as pd
+from transformers import BertTokenizer
 from docling.document_converter import DocumentConverter
 
 def extract_rebel_triplets(text):
@@ -36,13 +36,8 @@ def extract_rebel_triplets(text):
         triplets.append({'head': subject.strip(), 'type': relation.strip(), 'tail': object_.strip()})
     return triplets
 
-def prepare_training_data(parameters: dict):
-    # Dynamically load from parameters.yml
-    dataset_split = parameters.get("dataset_split", "train[:1000]")
-    max_samples = parameters.get("max_samples", 100)
-    
-    print(f"Downloading REBEL dataset (Split: {dataset_split} | Target Samples: {max_samples})...")
-    dataset = load_dataset("Babelscape/rebel-dataset", split=dataset_split, trust_remote_code=True)
+def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
+    max_samples = parameters.get("max_samples", 5000)
     
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
     special_tokens = ['[BOS]', '[EOS]', '<triplet>', '<subj_type>', '<relation>', '<obj>', '<obj_type>']
@@ -50,8 +45,13 @@ def prepare_training_data(parameters: dict):
     
     input_texts, target_texts = [], []
     
-    for item in dataset:
-        triplets = extract_rebel_triplets(item["triplets"])
+    for _, row in teacher_data.iterrows():
+        # Handle parsed JSON lists or raw string representations
+        try:
+            triplets = json.loads(row["triples"].replace("'", '"')) if isinstance(row["triples"], str) else row["triples"]
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            continue
+            
         if not triplets:
             continue
             
@@ -59,24 +59,26 @@ def prepare_training_data(parameters: dict):
         valid = False
         for t in triplets:
             sub = t.get("head", "").strip().lower()
-            rel = t.get("type", "").strip().lower()
+            sub_type = t.get("head_type", "entity").strip().lower()
+            rel = t.get("relation", "").strip().lower()
             obj = t.get("tail", "").strip().lower()
+            obj_type = t.get("tail_type", "entity").strip().lower()
+            
             if sub and rel and obj:
-                tgt += f"<triplet> {sub} <subj_type> entity <relation> {rel} <obj> {obj} <obj_type> entity "
+                tgt += f"<triplet> {sub} <subj_type> {sub_type} <relation> {rel} <obj> {obj} <obj_type> {obj_type} "
                 valid = True
                 
         if not valid:
             continue
             
         tgt += "[EOS]"
-        input_texts.append(item["context"])
+        input_texts.append(row["text"])
         target_texts.append(tgt)
         
-        # Stop once we hit the target configured in parameters.yml
         if len(input_texts) >= max_samples:
             break
             
-    print(f"✅ Gathered {len(input_texts)} valid samples.")
+    print(f"Gathered {len(input_texts)} valid financial samples.")
             
     encodings_input = tokenizer(input_texts, padding='max_length', max_length=128, truncation=True, return_tensors="pt")
     encodings_target = tokenizer(target_texts, add_special_tokens=False, padding='max_length', max_length=128, truncation=True, return_tensors="pt")
