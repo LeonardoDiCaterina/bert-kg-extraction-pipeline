@@ -54,7 +54,7 @@ data_prep  ──►  training  ──►  inference
 
 ```bash
 # Clone the repo
-git clone https://github.com/<your-username>/bert_kg_mvp.git
+git clone https://github.com/LeonardoDiCaterina/bert-kg-extraction-pipeline.git
 cd bert_kg_mvp
 
 # Install all dependencies (editable mode)
