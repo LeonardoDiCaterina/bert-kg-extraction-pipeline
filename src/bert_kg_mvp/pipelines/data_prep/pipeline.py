@@ -1,8 +1,14 @@
+from bert_kg_mvp.pipelines.data_prep.nodes import parse_sec_filings, prepare_training_data
 from kedro.pipeline import Pipeline, node
-from .nodes import prepare_training_data
 
 def create_pipeline(**kwargs) -> Pipeline:
     return Pipeline([
+        node(
+            func=parse_sec_filings,
+            inputs=["params:raw_pdf_dir", "params:max_chunk_words"],
+            outputs="parsed_10k_chunks",
+            name="parse_sec_filings_node",
+        ),
         node(
             func=prepare_training_data,
             inputs=["parameters"],

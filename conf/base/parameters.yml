@@ -1,3 +1,5 @@
+raw_pdf_dir: "data/01_raw"
+max_chunk_words: 1500
 model_name: "bert-base-uncased"
 max_seq_len: 128
 d_model: 768

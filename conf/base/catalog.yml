@@ -2,6 +2,12 @@ raw_texts:
   type: pandas.CSVDataset
   filepath: data/01_raw/input_texts.csv
 
+parsed_10k_chunks:
+  type: pandas.CSVDataset
+  filepath: data/02_intermediate/parsed_10k_chunks.csv
+  save_args:
+    index: False
+
 processed_dataset:
   type: pickle.PickleDataset
   filepath: data/03_primary/processed_data.pkl
