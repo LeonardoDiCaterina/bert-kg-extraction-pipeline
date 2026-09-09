@@ -8,6 +8,12 @@ parsed_10k_chunks:
   save_args:
     index: False
 
+teacher_extracted_triplets:
+  type: pandas.CSVDataset
+  filepath: data/02_intermediate/teacher_extracted_triplets.csv
+  save_args:
+    index: False
+
 processed_dataset:
   type: pickle.PickleDataset
   filepath: data/03_primary/processed_data.pkl
