@@ -1,9 +1,30 @@
 import json
 import os
+import re
 import torch
 import pandas as pd
 from transformers import BertTokenizer
 from docling.document_converter import DocumentConverter
+
+# High-signal sections in SEC 10-K filings
+TARGET_ITEMS_PATTERN = re.compile(
+    r"(item\s+(1|1a|7|7a|8)\.?\s+)", 
+    re.IGNORECASE
+)
+STOP_ITEMS_PATTERN = re.compile(
+    r"(item\s+(9|10|15)\.?\s+|signat(ure|ures)|part\s+iv)", 
+    re.IGNORECASE
+)
+
+def is_informative_chunk(text: str) -> bool:
+    """Filters out empty tables, legal boilerplate, and short snippets."""
+    words = text.split()
+    if len(words) < 50:
+        return False
+    # Drop checkbox-heavy administrative blocks
+    if "indicate by check mark" in text.lower():
+        return False
+    return True
 
 def extract_rebel_triplets(text):
     triplets = []
@@ -95,11 +116,10 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
     }, tokenizer
 
 def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
-    """Parses SEC 10-K PDFs into table-aware markdown chunks."""
+    """Parses SEC 10-K PDFs into table-aware markdown chunks, filtering out boilerplate."""
     converter = DocumentConverter()
     all_chunks = []
     
-    # Iterate through all PDFs in the raw data directory
     for filename in os.listdir(raw_data_dir):
         if not filename.endswith(".pdf"):
             continue
@@ -110,15 +130,27 @@ def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
         
         current_chunk = ""
         chunk_idx = 0
+        in_target_section = False
         
         for item, level in doc.iterate_items():
+            # Check for section toggles
+            if hasattr(item, 'text') and item.text:
+                if TARGET_ITEMS_PATTERN.search(item.text):
+                    in_target_section = True
+                elif STOP_ITEMS_PATTERN.search(item.text):
+                    in_target_section = False
+            
+            # Skip if we are in administrative boilerplate
+            if not in_target_section:
+                continue
+                
             if item.label == "table":
                 if current_chunk.strip():
-                    all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
-                    chunk_idx += 1
+                    if is_informative_chunk(current_chunk):
+                        all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+                        chunk_idx += 1
                     current_chunk = ""
                 
-                # Pass 'doc' to silence the deprecation warning
                 table_md = item.export_to_markdown(doc)
                 table_text = f"[TABLE START]\n{table_md}\n[TABLE END]"
                 all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": table_text})
@@ -128,11 +160,12 @@ def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
                 current_chunk += f"{item.text}\n"
                 
                 if len(current_chunk.split()) > max_words:
-                    all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
-                    chunk_idx += 1
+                    if is_informative_chunk(current_chunk):
+                        all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+                        chunk_idx += 1
                     current_chunk = ""
                     
-        if current_chunk.strip():
+        if current_chunk.strip() and is_informative_chunk(current_chunk):
             all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
             
     return pd.DataFrame(all_chunks)
