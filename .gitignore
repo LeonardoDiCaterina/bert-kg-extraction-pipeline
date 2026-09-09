@@ -1,12 +1,31 @@
-# Kedro Data
+# ─── Kedro Data ───────────────────────────────────────────────────────────────
 data/*
 !data/01_raw/
 !data/01_raw/input_texts.csv
 
-# Python and Kedro generated files
-__pycache__/
+# ─── Model Weights & Serialised Objects ───────────────────────────────────────
 *.pkl
 *.pt
 *.pth
+
+# ─── Python Build Artefacts ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+
+# ─── Kedro Generated Files ────────────────────────────────────────────────────
 .kedro.yml
 logs/
+
+# ─── OS & Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+.env
+.venv
+*.swp
+.idea/
+.vscode/
