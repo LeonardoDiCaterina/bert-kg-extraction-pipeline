@@ -18,6 +18,7 @@ dependencies = [
     "datasets",
     "networkx",
     "matplotlib",
+    "kedro-datasets[pandas]",
 ]
 
 [project.entry-points."kedro.project"]
