@@ -12,7 +12,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         ),
         node(
             func=generate_teacher_triplets,
-            inputs=["parameters", "parsed_10k_chunks"],
+            inputs="parsed_10k_chunks",
             outputs="labeled_data",
             name="generate_teacher_triplets_node"
         ),
