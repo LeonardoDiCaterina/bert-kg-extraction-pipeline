@@ -15,7 +15,7 @@ dependencies = [
     "torch",
     "transformers",
     "pandas",
-    "datasets",
+    "datasets == 2.19.0",
     "networkx",
     "matplotlib",
     "kedro-datasets[pandas]",
