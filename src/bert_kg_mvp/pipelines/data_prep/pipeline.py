@@ -5,8 +5,8 @@ def create_pipeline(**kwargs) -> Pipeline:
     return Pipeline([
         node(
             func=prepare_training_data,
-            inputs=["raw_texts", "parameters"],
+            inputs=["parameters"],
             outputs=["processed_dataset", "kg_tokenizer"],
-            name="prepare_training_data_node"
+            name="prepare_data_node"
         )
     ])

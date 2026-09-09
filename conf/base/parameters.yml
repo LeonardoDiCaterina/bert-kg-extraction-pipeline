@@ -1,13 +1,11 @@
 model_name: "bert-base-uncased"
 max_seq_len: 128
 d_model: 768
-entity_types:
-  - "PERSON"
-  - "ORGANIZATION"
-  - "LOCATION"
-relation_types:
-  - "WORKS_FOR"
-  - "LOCATED_IN"
-  - "FOUNDED_BY"
-epochs: 150
+epochs: 10
 learning_rate: 0.00005
+batch_size: 4
+gradient_accumulation_steps: 8
+
+# Data Scaling
+dataset_split: "train[:20000]"
+max_samples: 5000
