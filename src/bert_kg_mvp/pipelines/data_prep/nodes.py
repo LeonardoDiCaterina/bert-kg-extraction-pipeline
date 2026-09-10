@@ -57,17 +57,46 @@ def extract_rebel_triplets(text):
         triplets.append({'head': subject.strip(), 'type': relation.strip(), 'tail': object_.strip()})
     return triplets
 
+def align_entities_to_tokens(text: str, entity_str: str, tokenizer, input_ids):
+    """Finds the start and end token indices of entity_str in the tokenized text."""
+    # Tokenize the entity without special tokens
+    ent_ids = tokenizer.encode(entity_str, add_special_tokens=False)
+    if not ent_ids:
+        return -1, -1
+        
+    seq = input_ids.tolist()
+    # Sliding window search for exact token match
+    for i in range(len(seq) - len(ent_ids) + 1):
+        if seq[i:i+len(ent_ids)] == ent_ids:
+            return i, i + len(ent_ids) - 1
+            
+    # Fallback: if exact token sequence isn't found (due to spacing/punctuation differences)
+    # This is a naive fallback - ideally we'd use character offsets
+    return -1, -1
+
 def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
     max_samples = parameters.get("max_samples", 5000)
+    max_gt_triples = parameters.get("max_gt_triples", 15)
+    max_seq_length = parameters.get("max_seq_length", 128)
     
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-    special_tokens = ['[BOS]', '[EOS]', '<triplet>', '<subj_type>', '<relation>', '<obj>', '<obj_type>']
-    tokenizer.add_special_tokens({'additional_special_tokens': special_tokens})
     
-    input_texts, target_texts = [], []
+    ENTITY_TYPES = ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"]
+    RELATION_TYPES = ["has_metric", "produces", "operates_in", "reports_risk", "led_by"]
+    
+    ent_to_id = {ent: i for i, ent in enumerate(ENTITY_TYPES)}
+    rel_to_id = {rel: i for i, rel in enumerate(RELATION_TYPES)}
+    
+    # Store schema maps in tokenizer for downstream use
+    tokenizer.ent_to_id = ent_to_id
+    tokenizer.rel_to_id = rel_to_id
+    
+    input_ids_list, attention_masks_list = [], []
+    gt_relations_list = []
+    gt_subj_types_list, gt_obj_types_list = [], []
+    gt_subj_spans_list, gt_obj_spans_list = [], []
     
     for _, row in teacher_data.iterrows():
-        # Handle parsed JSON lists or raw string representations
         try:
             triplets = json.loads(row["triples"].replace("'", '"')) if isinstance(row["triples"], str) else row["triples"]
         except (json.JSONDecodeError, TypeError, AttributeError):
@@ -76,51 +105,78 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
         if not triplets:
             continue
             
-        tgt = "[BOS] "
-        valid = False
+        text = row["text"]
+        encodings = tokenizer(text, padding='max_length', max_length=max_seq_length, truncation=True, return_tensors="pt")
+        ids = encodings['input_ids'][0]
+        mask = encodings['attention_mask'][0]
+        
+        valid_triples = []
         for t in triplets:
             sub = t.get("head", "").strip().lower()
-
             if sub == "exact company name":
-                if "AAPL" in row.get("doc_id", ""):
-                    sub = "apple inc."
-                elif "MSFT" in row.get("doc_id", ""):
-                    sub = "microsoft corp."
-                else:
-                    sub = "company"
-            sub_type = t.get("head_type", "entity").strip().lower()
+                sub = "apple inc." if "AAPL" in row.get("doc_id", "") else ("microsoft corp." if "MSFT" in row.get("doc_id", "") else "company")
+                
+            sub_type = t.get("head_type", "").strip().lower()
             rel = t.get("relation", "").strip().lower()
             obj = t.get("tail", "").strip().lower()
-            obj_type = t.get("tail_type", "entity").strip().lower()
+            obj_type = t.get("tail_type", "").strip().lower()
             
-            if sub and rel and obj:
-                tgt += f"<triplet> {sub} <subj_type> {sub_type} <relation> {rel} <obj> {obj} <obj_type> {obj_type} "
-                valid = True
+            if sub_type not in ent_to_id or obj_type not in ent_to_id or rel not in rel_to_id:
+                continue
                 
-        if not valid:
+            subj_start, subj_end = align_entities_to_tokens(text, sub, tokenizer, ids)
+            obj_start, obj_end = align_entities_to_tokens(text, obj, tokenizer, ids)
+            
+            # If both entities are found in the text
+            if subj_start != -1 and obj_start != -1:
+                valid_triples.append({
+                    "relation": rel_to_id[rel],
+                    "subj_type": ent_to_id[sub_type],
+                    "obj_type": ent_to_id[obj_type],
+                    "subj_span": [subj_start, subj_end],
+                    "obj_span": [obj_start, obj_end]
+                })
+                
+        if not valid_triples:
             continue
             
-        tgt += "[EOS]"
-        input_texts.append(row["text"])
-        target_texts.append(tgt)
+        # Pad triples up to max_gt_triples (or truncate if too many)
+        valid_triples = valid_triples[:max_gt_triples]
         
-        if len(input_texts) >= max_samples:
+        rel_tensor = torch.full((max_gt_triples,), len(RELATION_TYPES), dtype=torch.long) # default to 'no_relation' (idx=len)
+        subj_type_tensor = torch.zeros((max_gt_triples,), dtype=torch.long)
+        obj_type_tensor = torch.zeros((max_gt_triples,), dtype=torch.long)
+        subj_span_tensor = torch.zeros((max_gt_triples, 2), dtype=torch.long)
+        obj_span_tensor = torch.zeros((max_gt_triples, 2), dtype=torch.long)
+        
+        for i, vt in enumerate(valid_triples):
+            rel_tensor[i] = vt["relation"]
+            subj_type_tensor[i] = vt["subj_type"]
+            obj_type_tensor[i] = vt["obj_type"]
+            subj_span_tensor[i] = torch.tensor(vt["subj_span"])
+            obj_span_tensor[i] = torch.tensor(vt["obj_span"])
+            
+        input_ids_list.append(ids)
+        attention_masks_list.append(mask)
+        gt_relations_list.append(rel_tensor)
+        gt_subj_types_list.append(subj_type_tensor)
+        gt_obj_types_list.append(obj_type_tensor)
+        gt_subj_spans_list.append(subj_span_tensor)
+        gt_obj_spans_list.append(obj_span_tensor)
+        
+        if len(input_ids_list) >= max_samples:
             break
             
-    print(f"Gathered {len(input_texts)} valid financial samples.")
-            
-    encodings_input = tokenizer(input_texts, padding='max_length', max_length=128, truncation=True, return_tensors="pt")
-    encodings_target = tokenizer(target_texts, add_special_tokens=False, padding='max_length', max_length=128, truncation=True, return_tensors="pt")
-    
-    decoder_input_ids = encodings_target['input_ids'][:, :-1]
-    labels = encodings_target['input_ids'][:, 1:].clone()
-    labels[labels == tokenizer.pad_token_id] = -100
+    print(f"Gathered {len(input_ids_list)} valid financial samples.")
     
     return {
-        "input_ids": encodings_input['input_ids'],
-        "attention_mask": encodings_input['attention_mask'],
-        "decoder_input_ids": decoder_input_ids,
-        "labels": labels
+        "input_ids": torch.stack(input_ids_list),
+        "attention_mask": torch.stack(attention_masks_list),
+        "relations": torch.stack(gt_relations_list),
+        "subj_types": torch.stack(gt_subj_types_list),
+        "obj_types": torch.stack(gt_obj_types_list),
+        "subj_spans": torch.stack(gt_subj_spans_list),
+        "obj_spans": torch.stack(gt_obj_spans_list)
     }, tokenizer
 
 def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:

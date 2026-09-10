@@ -52,6 +52,8 @@ The project uses three Kedro pipelines that can be run independently or chained 
 data_prep  ──►  training  ──►  inference
 ```
 
+![Kedro pipeline visualization](docs/pipeline_viz.jpg)
+
 ### `data_prep` — three-stage pipeline
 
 ```

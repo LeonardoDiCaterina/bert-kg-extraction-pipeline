@@ -18,7 +18,7 @@ class PositionalEncoding(nn.Module):
         return x
 
 class BERTToKnowledgeGraph_2(nn.Module):
-    def __init__(self, vocab_size, d_model=768, num_layers=4):
+    def __init__(self, d_model=768, num_layers=4, num_queries=15, num_relations=5, num_ent_types=7):
         super().__init__()
         self.encoder = BertModel.from_pretrained("bert-base-uncased")
         
@@ -26,26 +26,60 @@ class BERTToKnowledgeGraph_2(nn.Module):
         for param in self.encoder.parameters():
             param.requires_grad = False
             
-        self.embedding = nn.Embedding(vocab_size, d_model)
-        self.pos_encoder = PositionalEncoding(d_model)
+        self.num_queries = num_queries
+        
+        # Learned object queries instead of target embeddings
+        self.query_embed = nn.Embedding(num_queries, d_model)
         
         decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=8, batch_first=True)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
-        self.token_head = nn.Linear(d_model, vocab_size)
+        
+        # Prediction Heads
+        self.rel_class_head = nn.Linear(d_model, num_relations + 1)
+        self.subj_type_head = nn.Linear(d_model, num_ent_types)
+        self.obj_type_head = nn.Linear(d_model, num_ent_types)
+        
+        # Pointer Networks for Entity Spans
+        self.subj_start_ptr = nn.Linear(d_model, d_model)
+        self.subj_end_ptr = nn.Linear(d_model, d_model)
+        self.obj_start_ptr = nn.Linear(d_model, d_model)
+        self.obj_end_ptr = nn.Linear(d_model, d_model)
 
-    def forward(self, input_ids, attention_mask, decoder_input_ids):
+    def forward(self, input_ids, attention_mask):
         # Disable gradient tracking for the encoder forward pass
         with torch.no_grad():
             encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         memory = encoder_outputs.last_hidden_state
 
-        tgt_emb = self.embedding(decoder_input_ids)
-        tgt_emb = self.pos_encoder(tgt_emb)
+        bs = input_ids.size(0)
         
-        seq_len = decoder_input_ids.size(1)
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(seq_len).to(decoder_input_ids.device)
+        # Expand learned queries for the batch
+        query_embeds = self.query_embed.weight.unsqueeze(0).repeat(bs, 1, 1)
         
-        decoder_output = self.decoder(tgt_emb, memory, tgt_mask=tgt_mask)
-        logits = self.token_head(decoder_output)
+        # No causal mask needed for set prediction (bidirectional cross-attention)
+        decoder_output = self.decoder(query_embeds, memory)
         
-        return logits
+        # Classification logits
+        rel_logits = self.rel_class_head(decoder_output)
+        subj_type_logits = self.subj_type_head(decoder_output)
+        obj_type_logits = self.obj_type_head(decoder_output)
+        
+        # Pointer Network Logits (dot product with encoder memory)
+        # memory shape: [B, seq_len, d_model] -> transposed: [B, d_model, seq_len]
+        # query shape: [B, num_queries, d_model]
+        mem_t = memory.transpose(1, 2)
+        
+        subj_start_logits = torch.bmm(self.subj_start_ptr(decoder_output), mem_t) # [B, num_queries, seq_len]
+        subj_end_logits = torch.bmm(self.subj_end_ptr(decoder_output), mem_t)
+        obj_start_logits = torch.bmm(self.obj_start_ptr(decoder_output), mem_t)
+        obj_end_logits = torch.bmm(self.obj_end_ptr(decoder_output), mem_t)
+        
+        return {
+            "rel_logits": rel_logits,
+            "subj_type_logits": subj_type_logits,
+            "obj_type_logits": obj_type_logits,
+            "subj_start_logits": subj_start_logits,
+            "subj_end_logits": subj_end_logits,
+            "obj_start_logits": obj_start_logits,
+            "obj_end_logits": obj_end_logits
+        }

@@ -23,52 +23,70 @@ def run_mvp_inference(processed_dataset: dict, tokenizer, trained_model, paramet
     sample_size = 20
     input_ids_full = processed_dataset["input_ids"][-sample_size:]
     attention_mask_full = processed_dataset["attention_mask"][-sample_size:]
-    target_ids_full = processed_dataset["labels"][-sample_size:].clone()
-
-    bos_token_id = tokenizer.convert_tokens_to_ids("[BOS]")
-    eos_token_id = tokenizer.convert_tokens_to_ids("[EOS]")
     
-    pred_texts = []
+    # Ground truth for evaluation
+    gt_rels = processed_dataset["relations"][-sample_size:]
+    gt_subj_spans = processed_dataset["subj_spans"][-sample_size:]
+    gt_obj_spans = processed_dataset["obj_spans"][-sample_size:]
+
     batch_size = 4 
     print(f"Generating predictions for {sample_size} validation samples (Batch size: {batch_size})...")
+    
+    true_positives, false_positives, false_negatives = 0, 0, 0
     
     with torch.no_grad():
         for i in range(0, sample_size, batch_size):
             input_ids = input_ids_full[i:i+batch_size].to(device)
             attention_mask = attention_mask_full[i:i+batch_size].to(device)
             
-            current_bs = input_ids.size(0)
-            decoder_input_ids = torch.full((current_bs, 1), bos_token_id, dtype=torch.long, device=device)
+            outputs = trained_model(input_ids, attention_mask)
             
-            for _ in range(60):
-                logits = trained_model(input_ids, attention_mask, decoder_input_ids)
-                next_token_id = torch.argmax(logits[:, -1, :], dim=-1).unsqueeze(-1)
-                decoder_input_ids = torch.cat([decoder_input_ids, next_token_id], dim=-1)
+            rel_preds = torch.argmax(outputs["rel_logits"], dim=-1) # [B, num_queries]
+            subj_start_preds = torch.argmax(outputs["subj_start_logits"], dim=-1)
+            subj_end_preds = torch.argmax(outputs["subj_end_logits"], dim=-1)
+            obj_start_preds = torch.argmax(outputs["obj_start_logits"], dim=-1)
+            obj_end_preds = torch.argmax(outputs["obj_end_logits"], dim=-1)
+            
+            for b in range(input_ids.size(0)):
+                pred_set = set()
+                true_set = set()
                 
-                if (decoder_input_ids == eos_token_id).any(dim=1).all():
-                    break
+                # Extract ground truth set
+                valid_gt = gt_rels[i+b] != 5 # 5 is no_relation
+                for r, ss, os in zip(gt_rels[i+b][valid_gt], gt_subj_spans[i+b][valid_gt], gt_obj_spans[i+b][valid_gt]):
+                    subj_str = tokenizer.decode(input_ids[b, ss[0]:ss[1]+1], skip_special_tokens=True).strip()
+                    obj_str = tokenizer.decode(input_ids[b, os[0]:os[1]+1], skip_special_tokens=True).strip()
+                    true_set.add((subj_str, r.item(), obj_str))
                     
-            pred_texts.extend(tokenizer.batch_decode(decoder_input_ids, skip_special_tokens=False))
-            del input_ids, attention_mask, decoder_input_ids, logits
+                # Extract predicted set
+                for q in range(trained_model.num_queries):
+                    r_pred = rel_preds[b, q].item()
+                    if r_pred == 5: # no_relation
+                        continue
+                        
+                    ss = subj_start_preds[b, q].item()
+                    se = subj_end_preds[b, q].item()
+                    os = obj_start_preds[b, q].item()
+                    oe = obj_end_preds[b, q].item()
+                    
+                    if se < ss or oe < os:
+                        continue # Invalid spans
+                        
+                    subj_str = tokenizer.decode(input_ids[b, ss:se+1], skip_special_tokens=True).strip()
+                    obj_str = tokenizer.decode(input_ids[b, os:oe+1], skip_special_tokens=True).strip()
+                    pred_set.add((subj_str, r_pred, obj_str))
+                    
+                true_positives += len(pred_set & true_set)
+                false_positives += len(pred_set - true_set)
+                false_negatives += len(true_set - pred_set)
+                
+                if (i + b) < 3:
+                    print(f"\n--- Sample {i+b+1} ---")
+                    print(f"TARGET:    {true_set}")
+                    print(f"PREDICTED: {pred_set}")
+            
+            del input_ids, attention_mask, outputs
             if str(device) == "mps": torch.mps.empty_cache()
-
-    target_ids_full[target_ids_full == -100] = tokenizer.pad_token_id
-    true_texts = tokenizer.batch_decode(target_ids_full, skip_special_tokens=False)
-
-    true_positives, false_positives, false_negatives = 0, 0, 0
-
-    for idx, (pred, true) in enumerate(zip(pred_texts, true_texts)):
-        pred_set = parse_triplet_string(pred)
-        true_set = parse_triplet_string(true)
-
-        true_positives += len(pred_set & true_set)
-        false_positives += len(pred_set - true_set)
-        false_negatives += len(true_set - pred_set)
-        
-        if idx < 3:
-            print(f"\n--- Sample {idx+1} ---")
-            print(f"TARGET:    {true_set}")
-            print(f"PREDICTED: {pred_set}")
 
     precision = true_positives / max((true_positives + false_positives), 1)
     recall = true_positives / max((true_positives + false_negatives), 1)
