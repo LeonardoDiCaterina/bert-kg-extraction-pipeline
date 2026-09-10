@@ -126,7 +126,11 @@ def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
             
         pdf_path = os.path.join(raw_data_dir, filename)
         print(f"Extracting {filename}...")
-        doc = converter.convert(pdf_path).document
+        try:
+            doc = converter.convert(pdf_path).document
+        except Exception as e:
+            print(f"Skipping {filename} due to parse error: {e}")
+            continue
         
         current_chunk = ""
         chunk_idx = 0
