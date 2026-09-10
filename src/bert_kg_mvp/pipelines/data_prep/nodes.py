@@ -80,6 +80,14 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
         valid = False
         for t in triplets:
             sub = t.get("head", "").strip().lower()
+
+            if sub == "exact company name":
+                if "AAPL" in row.get("doc_id", ""):
+                    sub = "apple inc."
+                elif "MSFT" in row.get("doc_id", ""):
+                    sub = "microsoft corp."
+                else:
+                    sub = "company"
             sub_type = t.get("head_type", "entity").strip().lower()
             rel = t.get("relation", "").strip().lower()
             obj = t.get("tail", "").strip().lower()

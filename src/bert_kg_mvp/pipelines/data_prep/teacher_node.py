@@ -45,6 +45,7 @@ You are a Knowledge Graph refinement agent.<|im_end|>
 <|im_start|>user
 Fix all errors mentioned by the critic. Replace pronouns with exact entity names from the text.
 Output ONLY a valid JSON list of dictionaries. Do not include markdown formatting.
+Replace pronouns with the actual company name (e.g., "Apple Inc.")
 
 Text: {text}
 Initial Triples: {triples}
