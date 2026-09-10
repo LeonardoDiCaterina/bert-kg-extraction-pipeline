@@ -15,7 +15,7 @@ Extract ALL valid relations using ONLY the defined schema.
 Output a JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type".
 
 Example Text: "Apple Inc. released the new iPhone 15."
-Example Output: [{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone 15", "tail_type": "PRODUCT"}]
+Example Output: [{{ "head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone 15", "tail_type": "PRODUCT" }}]
 
 Schema: {schema}
 Text: {text}
