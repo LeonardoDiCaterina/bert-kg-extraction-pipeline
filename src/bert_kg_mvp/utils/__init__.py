@@ -6,6 +6,7 @@ from .text_processing import (
 )
 from .tokenization import align_entities_to_tokens
 from .sec_edgar import extract_html_from_sgml, resolve_company_name
+from .splitting import extract_company_identifier, split_by_company
 
 __all__ = [
     "is_informative_chunk",
@@ -15,4 +16,7 @@ __all__ = [
     "align_entities_to_tokens",
     "extract_html_from_sgml",
     "resolve_company_name",
+    "extract_company_identifier",
+    "split_by_company",
 ]
+

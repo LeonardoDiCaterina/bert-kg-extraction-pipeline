@@ -60,3 +60,33 @@ training:
 inference:
   sample_size: 20
   batch_size: 4
+
+# ─── Dataset Splitting (Company-Stratified) ────────────────────────────────────
+split:
+  strategy: "company_stratified"   # options: "company_stratified", "random"
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+  random_seed: 42
+
+# ─── Multi-Encoder Benchmarking ───────────────────────────────────────────────
+benchmark:
+  models:
+    - name: "bert-base-uncased"
+      display_name: "BERT Base"
+    - name: "ProsusAI/finbert"
+      display_name: "FinBERT (ProsusAI)"
+    - name: "nlpaueb/sec-bert-base"
+      display_name: "SEC-BERT (AUEB)"
+    - name: "roberta-base"
+      display_name: "RoBERTa Base"
+  epochs: 5
+  learning_rate: 0.00005
+  batch_size: 4
+  gradient_accumulation_steps: 8
+  freeze_strategy: "partial"       # options: "all", "partial", "none"
+  unfrozen_top_layers: 4
+  num_queries: 15
+  decoder_num_layers: 4
+  d_model: 768
+
