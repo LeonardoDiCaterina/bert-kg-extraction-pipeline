@@ -25,6 +25,8 @@ kg_tokenizer:
 kg_inference_output:
   type: pandas.CSVDataset
   filepath: data/07_model_output/predicted_kgs.csv
+  save_args:
+    index: False
 
 trained_model:
   type: pickle.PickleDataset

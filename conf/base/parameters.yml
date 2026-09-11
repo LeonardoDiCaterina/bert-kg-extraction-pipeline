@@ -1,22 +1,62 @@
-raw_pdf_dir: "data/01_raw"
-max_chunk_words: 1500
+# ─── Domain Ontology Schema ───────────────────────────────────────────────────
+schema:
+  entity_types:
+    - "org"
+    - "person"
+    - "product"
+    - "segment"
+    - "fin_metric"
+    - "risk_factor"
+    - "event"
+  relation_types:
+    - "has_metric"
+    - "produces"
+    - "operates_in"
+    - "reports_risk"
+    - "led_by"
 
-# Model Architecture
-encoder_model_name: "bert-base-uncased"
-decoder_num_layers: 4
-num_queries: 15
+# ─── Data Preparation ────────────────────────────────────────────────────────
+data_prep:
+  raw_pdf_dir: "data/01_raw"
+  max_chunk_words: 1500
+  max_seq_length: 128
+  max_gt_triples: 15
+  max_samples: 5000
+  target_items_regex: "(item\\s+(1|1a|7|7a|8)\\.?\\s+)"
+  stop_items_regex: "(item\\s+(9|10|15)\\.?\\s+|signat(ure|ures)|part\\s+iv)"
 
-# Freezing Strategy
-freeze_strategy: "partial"   # options: "all", "partial", "none"
-unfrozen_top_layers: 4
+# ─── Teacher Model (Qwen 72B) ─────────────────────────────────────────────────
+teacher:
+  model_name: "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4"
+  tensor_parallel_size: 1
+  max_model_len: 4096
+  gpu_memory_utilization: 0.90
+  temperature: 0.1
+  max_tokens: 1024
+  company_map:
+    AAPL: "Apple Inc."
+    MSFT: "Microsoft Corp."
+    AMZN: "Amazon.com, Inc."
+    NVDA: "NVIDIA Corporation"
+    GOOGL: "Alphabet Inc."
+    META: "Meta Platforms, Inc."
+    TSLA: "Tesla, Inc."
+    JPM: "JPMorgan Chase & Co."
 
-max_seq_len: 128
-d_model: 768
-epochs: 10
-learning_rate: 0.00005
-batch_size: 4
-gradient_accumulation_steps: 8
+# ─── Student Model Training ───────────────────────────────────────────────────
+training:
+  encoder_model_name: "bert-base-uncased"
+  decoder_num_layers: 4
+  num_queries: 15
+  freeze_strategy: "partial"   # options: "all", "partial", "none"
+  unfrozen_top_layers: 4
+  d_model: 768
+  epochs: 10
+  learning_rate: 0.00005
+  batch_size: 4
+  gradient_accumulation_steps: 8
 
-# Data Scaling
-dataset_split: "train[:20000]"
-max_samples: 5000
+# ─── Model Inference & Validation ─────────────────────────────────────────────
+inference:
+  sample_size: 20
+  batch_size: 4
