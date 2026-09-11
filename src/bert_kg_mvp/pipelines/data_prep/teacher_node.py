@@ -1,5 +1,8 @@
-import pandas as pd
 import json
+from typing import Any, Dict, Optional
+import pandas as pd
+
+from bert_kg_mvp.utils import clean_json_string, resolve_company_name
 
 try:
     from vllm import LLM, SamplingParams
@@ -7,7 +10,8 @@ except ImportError:
     LLM = None  # type: ignore[assignment, misc]
     SamplingParams = None  # type: ignore[assignment, misc]
 
-FIN_SCHEMA = """
+# Default schema fallback
+DEFAULT_FIN_SCHEMA = """
 Entity Types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
 Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
 """
@@ -22,7 +26,7 @@ Extract ALL valid relations from the text below using ONLY the entity types and 
 Guidelines:
 - Resolve "the Company," "we," "our," etc. directly to "{company_name}" in the head/tail fields — never leave a pronoun or generic company reference as an entity name.
 - "head" and "tail" must be exact entity names (use "{company_name}" for the primary entity; use full names as given in the text for all other entities).
-- Every triple's "relation" must be one of the five defined relationship types, and must connect entity types that make logical sense together (e.g. Has_Metric should connect an ORG or SEGMENT to a FIN_METRIC, not two FIN_METRIC nodes).
+- Every triple's "relation" must be one of the defined relationship types, and must connect entity types that make logical sense together.
 - Do NOT extract standalone numbers, dates, or dollar amounts as entities. If a number is relevant, it should be captured as an attribute/descriptor of a FIN_METRIC or EVENT entity (e.g. tail = "Net Revenue" not "$12.4 billion").
 - Do NOT extract generic or vague nouns (e.g. "the segment," "this metric," "the risk") as head or tail entities — resolve them to their specific named entity if possible, or omit the triple.
 - If the same fact appears multiple times with different phrasing, extract it once.
@@ -46,16 +50,16 @@ The primary entity for this document is {company_name}. Any triple describing "t
 
 Review the extracted triples against the source text and the schema. For each triple, check the following failure modes and flag every violation found, quoting the offending triple exactly:
 
-1. **Invalid head/tail entity**: The head or tail is NOT a recognized Company, Person, Product, Segment, Financial Metric, Risk Factor, or Event as named in the text (e.g., forbidding vague or fragment entities like "Balance," "2009 issuance," "the Company's operations," or "increase").
-2. **Raw value as node**: A raw number, percentage, date, or dollar amount is extracted as a standalone entity node rather than as part of a properly named FIN_METRIC or EVENT (e.g., tail = "$3.2 million" is invalid; tail = "Operating Income" is valid).
-3. **Disconnected from primary entity**: The relationship does not explicitly and traceably link back to {company_name}, either directly or through a valid intermediate entity (e.g., a SEGMENT or PRODUCT that itself belongs to {company_name}).
-4. **Unresolved pronoun**: The head or tail is "the Company," "we," "our," "it," or similar rather than "{company_name}" or another explicit named entity.
-5. **Type mismatch**: The head_type or tail_type does not match the entity as used, or the relation type does not logically fit the head/tail entity types per the schema (e.g., Led_By should link PERSON to ORG/SEGMENT, not FIN_METRIC to PERSON).
-6. **Unsupported claim**: The triple asserts something not actually stated or clearly implied in the text (i.e., a hallucination).
-7. **Duplicate**: The same fact is represented more than once with redundant triples.
+1. **Invalid head/tail entity**: The head or tail is NOT a recognized Company, Person, Product, Segment, Financial Metric, Risk Factor, or Event as named in the text.
+2. **Raw value as node**: A raw number, percentage, date, or dollar amount is extracted as a standalone entity node rather than as part of a properly named FIN_METRIC or EVENT.
+3. **Disconnected from primary entity**: The relationship does not explicitly and traceably link back to {company_name}.
+4. **Unresolved pronoun**: The head or tail is "the Company," "we," "our," "it," or similar rather than "{company_name}".
+5. **Type mismatch**: The head_type or tail_type does not match the entity as used.
+6. **Unsupported claim**: The triple asserts something not actually stated in the text.
+7. **Duplicate**: Redundant representation of the same fact.
 8. **Missed extraction**: A clearly valid, schema-conformant relation is present in the text but missing from the extracted triples.
 
-For each issue found, state: (a) the exact triple in question, (b) which failure mode it violates, and (c) a concrete suggested fix (e.g., correct entity name, correct type, or "remove this triple").
+For each issue found, state: (a) the exact triple in question, (b) which failure mode it violates, and (c) a concrete suggested fix.
 
 Schema: {schema}
 Company: {company_name}
@@ -72,12 +76,11 @@ You are a Knowledge Graph refinement agent responsible for producing the final, 
 The primary entity for this document is {company_name}. Using the critic's feedback, correct the initial triples according to these rules:
 
 - Remove any triple flagged as invalid, hallucinated, duplicate, or containing a raw number/date/dollar amount as a standalone entity.
-- Correct any type mismatches (head_type, tail_type, or relation) identified by the critic.
-- Replace all pronouns and vague references (e.g., "the Company," "we," "our," "it," "the segment") with "{company_name}" (for the primary entity) or the exact, fully-resolved entity name as it appears in the text (for any other entity, e.g. "iPhone Segment"). Never use "the Company" or a pronoun in the final output.
-- Add any missed valid relations the critic identified, formatted identically to the other triples.
-- Do not reintroduce any error type the critic flagged, even in slightly different form.
+- Correct any type mismatches identified by the critic.
+- Replace all pronouns and vague references with "{company_name}".
+- Add any missed valid relations the critic identified.
 - Preserve all triples the critic did not flag, unchanged.
-- If the critic's feedback was "PASS", return the initial triples exactly as given, with any remaining pronouns still resolved to "{company_name}" or the explicit entity name.
+- If the critic's feedback was "PASS", return the initial triples exactly as given.
 
 Output ONLY a valid JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". Do not include markdown formatting, code fences, or any explanatory text — JSON only.
 
@@ -89,32 +92,72 @@ Final JSON Output:<|im_end|>
 <|im_start|>assistant
 """
 
-def get_company_name(doc_id: str) -> str:
-    doc_upper = doc_id.upper()
-    if "AAPL" in doc_upper:
-        return "Apple Inc."
-    elif "MSFT" in doc_upper:
-        return "Microsoft Corp."
-    elif "AMZN" in doc_upper:
-        return "Amazon.com, Inc."
-    return "The Corporation"
 
-def generate_teacher_triplets(parsed_chunks: pd.DataFrame) -> pd.DataFrame:
+def get_company_name(doc_id: str, company_map: Optional[Dict[str, str]] = None) -> str:
+    """Backward-compatible wrapper around resolve_company_name."""
+    return resolve_company_name(doc_id, company_map=company_map)
+
+
+def format_schema_prompt(schema_params: Optional[Dict[str, Any]]) -> str:
+    """Constructs dynamic schema text for LLM prompts from schema configuration."""
+    if not schema_params:
+        return DEFAULT_FIN_SCHEMA
+
+    entity_types = schema_params.get("entity_types", [])
+    relation_types = schema_params.get("relation_types", [])
+
+    if not entity_types or not relation_types:
+        return DEFAULT_FIN_SCHEMA
+
+    ent_str = ", ".join(e.upper() for e in entity_types)
+    rel_str = ", ".join(r.replace("_", " ").title().replace(" ", "_") for r in relation_types)
+
+    return f"\nEntity Types: {ent_str}.\nRelationship Types: {rel_str}.\n"
+
+
+def generate_teacher_triplets(
+    parsed_chunks: pd.DataFrame,
+    teacher_params: Optional[Dict[str, Any]] = None,
+    schema_params: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    """
+    Orchestrates the 3-agent LLM distillation pipeline (Extractor -> Critic -> Refiner).
+    Parameters are dynamically loaded from `params:teacher` and `params:schema`.
+    """
     if LLM is None or SamplingParams is None:
         raise ImportError(
             "vllm is required to run the teacher model. Please install it with `pip install vllm`."
         )
-    print("Loading Qwen 72B Teacher Model onto H100...")
-    llm = LLM(model="Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4", tensor_parallel_size=1, max_model_len=4096)
-    sampling_params = SamplingParams(temperature=0.1, max_tokens=1024)
 
-    # Pre-calculate company mappings for each row
-    companies = [get_company_name(row["doc_id"]) for _, row in parsed_chunks.iterrows()]
+    params = teacher_params or {}
+    model_name = params.get("model_name", "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4")
+    tp_size = params.get("tensor_parallel_size", 1)
+    max_model_len = params.get("max_model_len", 4096)
+    gpu_memory_utilization = params.get("gpu_memory_utilization", 0.90)
+    temperature = params.get("temperature", 0.1)
+    max_tokens = params.get("max_tokens", 1024)
+    company_map = params.get("company_map", None)
+
+    schema_text = format_schema_prompt(schema_params)
+
+    print(f"Loading Teacher Model ({model_name})...")
+    llm_kwargs: Dict[str, Any] = {
+        "model": model_name,
+        "tensor_parallel_size": tp_size,
+        "max_model_len": max_model_len,
+    }
+    if gpu_memory_utilization is not None:
+        llm_kwargs["gpu_memory_utilization"] = float(gpu_memory_utilization)
+
+    llm = LLM(**llm_kwargs)
+    sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
+
+    companies = [resolve_company_name(row["doc_id"], company_map=company_map) for _, row in parsed_chunks.iterrows()]
 
     # --- AGENT 1: EXTRACTOR ---
     print(f"Agent 1 (Extractor): Processing {len(parsed_chunks)} chunks...")
     ext_prompts = [
-        EXTRACTOR_PROMPT.format(schema=FIN_SCHEMA, company_name=companies[i], text=row['text']) 
+        EXTRACTOR_PROMPT.format(schema=schema_text, company_name=companies[i], text=row["text"])
         for i, row in parsed_chunks.iterrows()
     ]
     ext_outputs = [r.outputs[0].text.strip() for r in llm.generate(ext_prompts, sampling_params)]
@@ -122,7 +165,7 @@ def generate_teacher_triplets(parsed_chunks: pd.DataFrame) -> pd.DataFrame:
     # --- AGENT 2: CRITIC ---
     print("Agent 2 (Critic): Auditing extractions...")
     crit_prompts = [
-        CRITIC_PROMPT.format(schema=FIN_SCHEMA, company_name=companies[i], text=row['text'], triples=ext_outputs[i]) 
+        CRITIC_PROMPT.format(schema=schema_text, company_name=companies[i], text=row["text"], triples=ext_outputs[i])
         for i, row in parsed_chunks.iterrows()
     ]
     crit_outputs = [r.outputs[0].text.strip() for r in llm.generate(crit_prompts, sampling_params)]
@@ -130,23 +173,23 @@ def generate_teacher_triplets(parsed_chunks: pd.DataFrame) -> pd.DataFrame:
     # --- AGENT 3: REFINER ---
     print("Agent 3 (Refiner): Generating final JSON...")
     ref_prompts = [
-        REFINER_PROMPT.format(company_name=companies[i], text=row['text'], triples=ext_outputs[i], critique=crit_outputs[i]) 
+        REFINER_PROMPT.format(company_name=companies[i], text=row["text"], triples=ext_outputs[i], critique=crit_outputs[i])
         for i, row in parsed_chunks.iterrows()
     ]
     ref_outputs = [r.outputs[0].text.strip() for r in llm.generate(ref_prompts, sampling_params)]
 
     extracted_data = []
     for i, raw_output in enumerate(ref_outputs):
+        clean_json = clean_json_string(raw_output)
         try:
-            clean_json = raw_output.replace("```json", "").replace("```", "").strip()
             triples = json.loads(clean_json)
         except json.JSONDecodeError:
             triples = []
-            
+
         extracted_data.append({
             "chunk_id": parsed_chunks.iloc[i]["chunk_id"],
             "text": parsed_chunks.iloc[i]["text"],
             "triples": triples
         })
-        
+
     return pd.DataFrame(extracted_data)
