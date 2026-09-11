@@ -79,6 +79,19 @@ def train_model(
             for layer in encoder_layers[-unfrozen_top_layers:]:
                 layer.train()
 
+    # Optional torch.compile acceleration (fuses multi-head attention kernels & heads)
+    compile_model = training_params.get("compile_model", False)
+    if compile_model:
+        if hasattr(torch, "compile"):
+            compile_mode = training_params.get("compile_mode", "default")
+            try:
+                print(f"Compiling DynamicKGExtractor with torch.compile(mode='{compile_mode}')...")
+                model = torch.compile(model, mode=compile_mode)
+            except Exception as e:
+                print(f"Warning: torch.compile failed ({e}). Proceeding uncompiled.")
+        else:
+            print("torch.compile is not available in this PyTorch version. Proceeding uncompiled.")
+
     epochs = training_params.get("epochs", 10)
 
     for epoch in range(epochs):
@@ -122,4 +135,6 @@ def train_model(
 
         print(f"Epoch {epoch+1}/{epochs} - Avg Loss: {(total_loss / len(dataloader)):.4f}")
 
-    return model
+    # Return underlying uncompiled model if wrapped (for clean serialization)
+    return getattr(model, "_orig_mod", model)
+

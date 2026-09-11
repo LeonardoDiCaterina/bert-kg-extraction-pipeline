@@ -139,6 +139,32 @@ def test_train_model_freeze_all(mock_extractor_cls):
     assert trained_model is not None
 
 
+@patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
+def test_train_model_with_compilation(mock_extractor_cls):
+    mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
+
+    dataset = make_dummy_dataset(n_samples=2, seq_len=8, max_triples=3)
+    mock_tokenizer = MagicMock()
+
+    params = {
+        "encoder_model_name": "bert-base-uncased",
+        "epochs": 1,
+        "batch_size": 2,
+        "learning_rate": 1e-3,
+        "freeze_strategy": "all",
+        "decoder_num_layers": 1,
+        "num_queries": 3,
+        "gradient_accumulation_steps": 1,
+        "compile_model": True,
+        "compile_mode": "default",
+    }
+
+    with patch("torch.compile", side_effect=lambda m, **kwargs: m) as mock_compile:
+        trained_model = train_model(dataset, mock_tokenizer, params)
+        assert trained_model is not None
+        mock_compile.assert_called_once()
+
+
 def test_pipeline_definitions():
     training_pipe = create_training_pipeline()
     assert "train_model_node" in [n.name for n in training_pipe.nodes]
@@ -146,3 +172,4 @@ def test_pipeline_definitions():
 
     inference_pipe = create_inference_pipeline()
     assert "run_inference_node" in [n.name for n in inference_pipe.nodes]
+

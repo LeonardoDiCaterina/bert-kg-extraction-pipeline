@@ -55,6 +55,8 @@ training:
   learning_rate: 0.00005
   batch_size: 4
   gradient_accumulation_steps: 8
+  compile_model: true          # Accelerate training & forward pass with torch.compile
+  compile_mode: "default"      # options: "default", "reduce-overhead", "max-autotune"
 
 # ─── Model Inference & Validation ─────────────────────────────────────────────
 inference:
@@ -89,4 +91,7 @@ benchmark:
   num_queries: 15
   decoder_num_layers: 4
   d_model: 768
+  compile_model: true              # Accelerate benchmark models with torch.compile
+  compile_mode: "default"
+
 

@@ -258,6 +258,19 @@ def run_encoder_benchmark(
                 for layer in encoder_layers[-unfrozen_top_layers:]:
                     layer.train()
 
+        # Optional torch.compile acceleration
+        compile_model = benchmark_params.get("compile_model", False)
+        if compile_model:
+            if hasattr(torch, "compile"):
+                compile_mode = benchmark_params.get("compile_mode", "default")
+                try:
+                    print(f"Compiling {model_name} with torch.compile(mode='{compile_mode}')...")
+                    model = torch.compile(model, mode=compile_mode)
+                except Exception as exc:
+                    print(f"Warning: torch.compile failed for {model_name} ({exc}). Proceeding uncompiled.")
+            else:
+                print("torch.compile is not available in this PyTorch version. Proceeding uncompiled.")
+
         start_train_time = time.perf_counter()
         for epoch in range(epochs):
             model.train()
