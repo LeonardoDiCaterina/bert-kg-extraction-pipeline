@@ -5,7 +5,9 @@ from bert_kg_mvp.utils import (
     clean_json_string,
     extract_html_from_sgml,
     extract_rebel_triplets,
+    infer_section_label,
     is_informative_chunk,
+    parse_doc_metadata,
     parse_triplet_string,
     resolve_company_name,
 )
@@ -94,3 +96,32 @@ def test_resolve_company_name():
     custom = {"GOOG": "Google LLC"}
     assert resolve_company_name("GOOG_10K.txt", company_map=custom) == "Google LLC"
     assert resolve_company_name("AAPL_10K.txt", company_map=custom) == "The Corporation"
+
+
+def test_infer_section_label():
+    assert infer_section_label("Item 1. Business") == "Item 1 – Business"
+    assert infer_section_label("Item 1A. Risk Factors") == "Item 1A – Risk Factors"
+    assert infer_section_label("ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS") == "Item 7 – MD&A"
+    assert infer_section_label("Item 7A. Quantitative Disclosures") == "Item 7A – Market Risk"
+    assert infer_section_label("Item 8. Financial Statements") == "Item 8 – Financial Statements"
+    assert infer_section_label("Item 9B. Other Information") == "Unknown"
+    assert infer_section_label("Just random text") == "Unknown"
+
+
+def test_parse_doc_metadata():
+    # SEC EDGAR folder structure
+    path1 = "sec-edgar-filings/AAPL/10-K/0000320193-24-000106/full-submission.txt"
+    meta1 = parse_doc_metadata(path1)
+    assert meta1["ticker"] == "AAPL"
+    assert meta1["year"] == "2024"
+
+    # Flat filename
+    path2 = "MSFT_2023_10K.pdf"
+    meta2 = parse_doc_metadata(path2)
+    assert meta2["ticker"] == "MSFT"
+    assert meta2["year"] == "2023"
+
+    # Without year or ticker
+    meta3 = parse_doc_metadata("unknown_document.txt")
+    assert meta3["year"] == ""
+

@@ -1,3 +1,4 @@
+import re
 from typing import Dict, Optional
 
 
@@ -58,3 +59,67 @@ def resolve_company_name(
             return full_name
 
     return default_name
+
+
+# Canonical display names for the five targeted SEC sections
+_SECTION_LABELS: Dict[str, str] = {
+    "1": "Item 1 – Business",
+    "1a": "Item 1A – Risk Factors",
+    "7": "Item 7 – MD&A",
+    "7a": "Item 7A – Market Risk",
+    "8": "Item 8 – Financial Statements",
+}
+
+_SECTION_RE = re.compile(
+    r"item\s+(1a|7a|1|7|8)",
+    re.IGNORECASE,
+)
+
+
+def infer_section_label(section_hint: str) -> str:
+    """
+    Maps a raw section-header string (e.g. 'Item 1A. Risk Factors') to a
+    canonical label such as 'Item 1A – Risk Factors'.
+    Returns 'Unknown' when the string does not match any targeted section.
+    """
+    m = _SECTION_RE.search(section_hint)
+    if m:
+        key = m.group(1).lower()
+        return _SECTION_LABELS.get(key, "Unknown")
+    return "Unknown"
+
+
+def parse_doc_metadata(doc_id: str) -> Dict[str, str]:
+    """
+    Extracts coarse provenance metadata from a document identifier / filepath.
+
+    Returns a dict with keys:
+        ``ticker``  – uppercased ticker symbol (e.g. 'AAPL'), or '' if unknown.
+        ``year``    – 4-digit filing year string (e.g. '2024'), or '' if absent.
+        ``section`` – canonical section label (e.g. 'Item 7 – MD&A'), or ''
+                      when no section hint is embedded in the id.
+
+    The ``section`` field is intentionally left empty here because the section
+    is discovered *during* document parsing (not from the id alone).  The
+    caller (``parse_sec_filings``) is expected to fill it in after detection.
+    """
+    doc_upper = doc_id.upper()
+
+    # --- Ticker ---
+    ticker = ""
+    # Try sec-edgar-filings/<TICKER>/... path structure first
+    if "SEC-EDGAR-FILINGS/" in doc_upper:
+        parts = doc_upper.split("SEC-EDGAR-FILINGS/")[1].split("/")
+        if parts and parts[0]:
+            ticker = parts[0]
+    else:
+        # Fall back: first all-caps word segment up to 5 characters
+        m = re.match(r"([A-Z]{1,5})", doc_upper.replace("-", "").replace("_", " ").strip())
+        if m:
+            ticker = m.group(1)
+
+    # --- Year ---
+    year_m = re.search(r"(20\d{2}|19\d{2})", doc_id)
+    year = year_m.group(1) if year_m else ""
+
+    return {"ticker": ticker, "year": year, "section": ""}
