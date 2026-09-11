@@ -32,6 +32,61 @@ __all__ = [
 ]
 
 
+def _ensure_provenance_metadata(
+    df: pd.DataFrame,
+    data_prep_params: Dict[str, Any]
+) -> pd.DataFrame:
+    """
+    Self-healing provenance enrichment:
+    If teacher triplets were generated without doc_id/ticker/year/section metadata
+    (e.g., from an earlier pipeline run), this function automatically recovers provenance
+    by aligning with the intermediate parsed_10k_chunks dataset or running regex parsers.
+    """
+    df = df.copy()
+
+    # 1. Recover doc_id if missing or completely empty
+    needs_doc_id = "doc_id" not in df.columns or not df["doc_id"].astype(str).str.strip().any()
+    if needs_doc_id:
+        custom_chunks_path = data_prep_params.get("parsed_chunks_path")
+        candidate_paths = [Path(custom_chunks_path)] if custom_chunks_path else []
+        candidate_paths.extend([
+            Path("data/02_intermediate/parsed_10k_chunks.csv"),
+            Path("data/02_intermediate/parsed_10k_chunks.parquet"),
+        ])
+        for p in candidate_paths:
+            if p.exists():
+                try:
+                    chunks_df = pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p)
+                    if "doc_id" in chunks_df.columns:
+                        if len(chunks_df) == len(df):
+                            df["doc_id"] = chunks_df["doc_id"].values
+                            print(f"[Auto-Enrich] Reconciled doc_id from {p} via 1:1 row alignment.")
+                            break
+                        elif "chunk_id" in df.columns and "chunk_id" in chunks_df.columns:
+                            mapping = chunks_df.drop_duplicates("chunk_id").set_index("chunk_id")["doc_id"]
+                            df["doc_id"] = df["chunk_id"].map(mapping).fillna("")
+                            print(f"[Auto-Enrich] Reconciled doc_id from {p} via chunk_id mapping.")
+                            break
+                except Exception as exc:
+                    print(f"Notice: Could not load candidate chunks from {p}: {exc}")
+
+    # 2. Extract ticker and year from doc_id
+    has_ticker = "ticker" in df.columns and df["ticker"].astype(str).str.strip().any()
+    if not has_ticker and "doc_id" in df.columns:
+        parsed = df["doc_id"].astype(str).apply(parse_doc_metadata)
+        df["ticker"] = [m.get("ticker", "") for m in parsed]
+        if "year" not in df.columns or not df["year"].astype(str).str.strip().any():
+            df["year"] = [m.get("year", "") for m in parsed]
+        print(f"[Auto-Enrich] Extracted ticker/year from doc_id for {len(df)} samples.")
+
+    # 3. Infer section label from text if missing
+    has_section = "section" in df.columns and df["section"].astype(str).str.strip().any()
+    if not has_section and "text" in df.columns:
+        df["section"] = df["text"].astype(str).apply(infer_section_label)
+
+    return df
+
+
 def prepare_training_data(
     teacher_data: pd.DataFrame,
     data_prep_params: Dict[str, Any],
@@ -42,6 +97,9 @@ def prepare_training_data(
     Converts teacher-labeled KG triplets into tokenized PyTorch span/relation tensors.
     Supports either modular namespaced params or a single backward-compatible parameters dict.
     """
+    # Auto-heal and enrich provenance metadata if missing from teacher output
+    teacher_data = _ensure_provenance_metadata(teacher_data, data_prep_params)
+
     # Extract configs with graceful fallback for unified or namespaced dicts
     if training_params is None:
         training_params = data_prep_params.get("training", data_prep_params)
@@ -52,6 +110,7 @@ def prepare_training_data(
     max_samples = data_prep_params.get("max_samples", 5000)
     max_gt_triples = data_prep_params.get("max_gt_triples", 15)
     max_seq_length = data_prep_params.get("max_seq_length", 128)
+    use_context_prefix = data_prep_params.get("use_context_prefix", True)
 
     tokenizer = AutoTokenizer.from_pretrained(encoder_model_name)
 
@@ -93,12 +152,14 @@ def prepare_training_data(
         # so the encoder can ground self-referential language ('we', 'the Company')
         # without requiring architectural changes.
         # Format: "[AAPL | 2024 | Item 7 – MD&A] <original text>"
-        ticker  = str(row.get("ticker",  "")).strip()
-        year    = str(row.get("year",    "")).strip()
-        section = str(row.get("section", "")).strip()
-        prefix_parts = [p for p in [ticker, year, section] if p]
-        if prefix_parts:
-            text = f"[{' | '.join(prefix_parts)}] {text}"
+        if use_context_prefix:
+            ticker  = str(row.get("ticker",  "")).strip()
+            year    = str(row.get("year",    "")).strip()
+            section = str(row.get("section", "")).strip()
+            prefix_parts = [p for p in [ticker, year, section] if p]
+            if prefix_parts:
+                text = f"[{' | '.join(prefix_parts)}] {text}"
+
         encodings = tokenizer(text, padding="max_length", max_length=max_seq_length, truncation=True, return_tensors="pt")
         ids = encodings["input_ids"][0]
         mask = encodings["attention_mask"][0]

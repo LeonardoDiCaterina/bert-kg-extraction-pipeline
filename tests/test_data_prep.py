@@ -166,3 +166,26 @@ def test_extract_rebel_triplets():
     assert triplets[0]["tail"] == "iPhone"
     assert triplets[0]["type"] == "produces"
 
+
+def test_ensure_provenance_metadata_auto_healing():
+    from bert_kg_mvp.pipelines.data_prep.nodes import _ensure_provenance_metadata
+
+    # Simulate raw legacy teacher output without ticker/year/section
+    raw_df = pd.DataFrame({
+        "chunk_id": [0, 1],
+        "doc_id": [
+            "sec-edgar-filings/AAPL/10-K/0000320193-24-000106/full-submission.txt",
+            "sec-edgar-filings/NVDA/10-K/0001045810-25-000012/full-submission.txt",
+        ],
+        "text": [
+            "Item 1. Business. Apple Inc. designs hardware.",
+            "Item 7. MD&A. NVIDIA reports GPU revenue.",
+        ],
+    })
+
+    enriched = _ensure_provenance_metadata(raw_df, {})
+    assert enriched["ticker"].tolist() == ["AAPL", "NVDA"]
+    assert enriched["year"].tolist() == ["2024", "2025"]
+    assert enriched["section"].tolist() == ["Item 1 – Business", "Item 7 – MD&A"]
+
+
