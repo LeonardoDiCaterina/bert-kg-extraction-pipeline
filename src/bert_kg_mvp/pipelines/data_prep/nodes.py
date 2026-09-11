@@ -181,6 +181,8 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
         "obj_spans": torch.stack(gt_obj_spans_list)
     }, tokenizer
 
+import tempfile
+
 def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
     """Parses SEC 10-K PDFs and text filings into table-aware markdown chunks, filtering out boilerplate."""
     converter = DocumentConverter()
@@ -188,24 +190,63 @@ def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
     
     target_dir = Path(raw_data_dir)
     pdf_files = list(target_dir.glob("*.pdf"))
-    edgar_files = list(target_dir.rglob("full-submission.txt")) + list(target_dir.rglob("primary-document.html"))
+    
+    # Only process full-submission.txt to avoid duplicates, but we will extract the HTML from it
+    edgar_files = list(target_dir.rglob("full-submission.txt"))
     
     all_files = pdf_files + edgar_files
     
     for file_path in all_files:
+        is_edgar_txt = file_path.name == "full-submission.txt"
+        
         # Generate a readable document ID
-        if "sec-edgar-filings" in str(file_path):
+        if is_edgar_txt:
             doc_id = file_path.parent.parent.parent.name # e.g. AAPL
         else:
             doc_id = file_path.name
             
         print(f"Extracting {doc_id}...")
+        
+        target_parse_path = str(file_path)
+        tmp_file = None
+        
+        if is_edgar_txt:
+            # full-submission.txt is a massive SGML file with base64 images and XBRL data that crashes Docling.
+            # We must extract ONLY the primary 10-K HTML document.
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                # Find the main 10-K document block
+                doc_start = content.find("<DOCUMENT>")
+                doc_end = content.find("</DOCUMENT>", doc_start)
+                if doc_start != -1 and doc_end != -1:
+                    doc_block = content[doc_start:doc_end]
+                    # Extract text inside <TEXT> ... </TEXT>
+                    text_start = doc_block.find("<TEXT>")
+                    text_end = doc_block.find("</TEXT>", text_start)
+                    if text_start != -1 and text_end != -1:
+                        html_content = doc_block[text_start + 6:text_end]
+                        # Write to temporary file for Docling
+                        tmp_file = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode='w', encoding='utf-8')
+                        tmp_file.write(html_content)
+                        tmp_file.close()
+                        target_parse_path = tmp_file.name
+            except Exception as e:
+                print(f"Skipping {doc_id} due to SGML extraction error: {e}")
+                continue
+                
         try:
-            doc = converter.convert(str(file_path)).document
+            doc = converter.convert(target_parse_path).document
         except Exception as e:
             print(f"Skipping {doc_id} due to parse error: {e}")
+            if tmp_file:
+                os.unlink(tmp_file.name)
             continue
-        
+            
+        if tmp_file:
+            os.unlink(tmp_file.name)
+            
         current_chunk = ""
         chunk_idx = 0
         in_target_section = False
