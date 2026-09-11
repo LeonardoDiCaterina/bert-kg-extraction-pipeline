@@ -193,9 +193,13 @@ def generate_teacher_triplets(
             triples = []
 
         extracted_data.append({
+            "doc_id":   parsed_chunks.iloc[i]["doc_id"],
             "chunk_id": parsed_chunks.iloc[i]["chunk_id"],
-            "text": parsed_chunks.iloc[i]["text"],
-            "triples": triples
+            "ticker":   parsed_chunks.iloc[i].get("ticker",  ""),
+            "year":     parsed_chunks.iloc[i].get("year",    ""),
+            "section":  parsed_chunks.iloc[i].get("section", ""),
+            "text":     parsed_chunks.iloc[i]["text"],
+            "triples":  triples,
         })
 
     return pd.DataFrame(extracted_data)

@@ -12,7 +12,9 @@ from bert_kg_mvp.utils import (
     align_entities_to_tokens,
     extract_html_from_sgml,
     extract_rebel_triplets,
+    infer_section_label,
     is_informative_chunk,
+    parse_doc_metadata,
 )
 
 try:
@@ -73,6 +75,7 @@ def prepare_training_data(
     gt_relations_list = []
     gt_subj_types_list, gt_obj_types_list = [], []
     gt_subj_spans_list, gt_obj_spans_list = [], []
+    metadata_list: list = []
 
     for _, row in teacher_data.iterrows():
         try:
@@ -84,6 +87,18 @@ def prepare_training_data(
             continue
 
         text = row["text"]
+
+        # ── Context prefix ──────────────────────────────────────────────────────
+        # Build a natural-language prefix from the chunk's provenance metadata
+        # so the encoder can ground self-referential language ('we', 'the Company')
+        # without requiring architectural changes.
+        # Format: "[AAPL | 2024 | Item 7 – MD&A] <original text>"
+        ticker  = str(row.get("ticker",  "")).strip()
+        year    = str(row.get("year",    "")).strip()
+        section = str(row.get("section", "")).strip()
+        prefix_parts = [p for p in [ticker, year, section] if p]
+        if prefix_parts:
+            text = f"[{' | '.join(prefix_parts)}] {text}"
         encodings = tokenizer(text, padding="max_length", max_length=max_seq_length, truncation=True, return_tensors="pt")
         ids = encodings["input_ids"][0]
         mask = encodings["attention_mask"][0]
@@ -140,20 +155,32 @@ def prepare_training_data(
         gt_subj_spans_list.append(subj_span_tensor)
         gt_obj_spans_list.append(obj_span_tensor)
 
+        metadata_list.append({
+            "doc_id":   row.get("doc_id",   ""),
+            "chunk_id": row.get("chunk_id", ""),
+            "ticker":   row.get("ticker",   ""),
+            "year":     row.get("year",     ""),
+            "section":  row.get("section",  ""),
+        })
+
         if len(input_ids_list) >= max_samples:
             break
 
     print(f"Gathered {len(input_ids_list)} valid financial samples.")
 
-    return {
-        "input_ids": torch.stack(input_ids_list),
+    tensors = {
+        "input_ids":      torch.stack(input_ids_list),
         "attention_mask": torch.stack(attention_masks_list),
-        "relations": torch.stack(gt_relations_list),
-        "subj_types": torch.stack(gt_subj_types_list),
-        "obj_types": torch.stack(gt_obj_types_list),
-        "subj_spans": torch.stack(gt_subj_spans_list),
-        "obj_spans": torch.stack(gt_obj_spans_list)
-    }, tokenizer
+        "relations":      torch.stack(gt_relations_list),
+        "subj_types":     torch.stack(gt_subj_types_list),
+        "obj_types":      torch.stack(gt_obj_types_list),
+        "subj_spans":     torch.stack(gt_subj_spans_list),
+        "obj_spans":      torch.stack(gt_obj_spans_list),
+        # metadata is kept as a plain list of dicts (not a tensor) so it can
+        # travel alongside predictions for traceability at inference time.
+        "metadata":       metadata_list,
+    }
+    return tensors, tokenizer
 
 
 def parse_sec_filings(
@@ -227,13 +254,18 @@ def parse_sec_filings(
         current_chunk = ""
         chunk_idx = 0
         in_target_section = False
+        current_section_label = ""  # tracks which Item we are currently inside
+        doc_meta = parse_doc_metadata(doc_id)
 
         for item, _ in doc.iterate_items():
             if hasattr(item, "text") and item.text:
                 if target_pattern.search(item.text):
                     in_target_section = True
+                    # Update the canonical section label whenever we enter a new item
+                    current_section_label = infer_section_label(item.text)
                 elif stop_pattern.search(item.text):
                     in_target_section = False
+                    current_section_label = ""
 
             if not in_target_section:
                 continue
@@ -241,13 +273,21 @@ def parse_sec_filings(
             if item.label == "table":
                 if current_chunk.strip():
                     if is_informative_chunk(current_chunk):
-                        all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+                        all_chunks.append({
+                            "doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip(),
+                            "ticker": doc_meta["ticker"], "year": doc_meta["year"],
+                            "section": current_section_label,
+                        })
                         chunk_idx += 1
                     current_chunk = ""
 
                 table_md = item.export_to_markdown(doc)
                 table_text = f"[TABLE START]\n{table_md}\n[TABLE END]"
-                all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": table_text})
+                all_chunks.append({
+                    "doc_id": doc_id, "chunk_id": chunk_idx, "text": table_text,
+                    "ticker": doc_meta["ticker"], "year": doc_meta["year"],
+                    "section": current_section_label,
+                })
                 chunk_idx += 1
 
             elif hasattr(item, "text") and item.text:
@@ -255,11 +295,19 @@ def parse_sec_filings(
 
                 if len(current_chunk.split()) > max_words:
                     if is_informative_chunk(current_chunk):
-                        all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+                        all_chunks.append({
+                            "doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip(),
+                            "ticker": doc_meta["ticker"], "year": doc_meta["year"],
+                            "section": current_section_label,
+                        })
                         chunk_idx += 1
                     current_chunk = ""
 
         if current_chunk.strip() and is_informative_chunk(current_chunk):
-            all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+            all_chunks.append({
+                "doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip(),
+                "ticker": doc_meta["ticker"], "year": doc_meta["year"],
+                "section": current_section_label,
+            })
 
     return pd.DataFrame(all_chunks)

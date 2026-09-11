@@ -83,10 +83,12 @@ def test_prepare_training_data():
     assert "obj_types" in dataset
     assert "subj_spans" in dataset
     assert "obj_spans" in dataset
+    assert "metadata" in dataset
 
     assert len(dataset["input_ids"]) >= 1
     assert dataset["relations"].shape[1] == 5
     assert dataset["subj_spans"].shape[1] == 5
+    assert len(dataset["metadata"]) == len(dataset["input_ids"])
 
     # Test namespaced call signature
     data_prep_p = {"max_seq_length": 64, "max_gt_triples": 3, "max_samples": 10}
@@ -136,11 +138,17 @@ def test_parse_sec_filings_mocked():
             df = parse_sec_filings(tmp_dir, max_words=50)
             assert isinstance(df, pd.DataFrame)
             assert len(df) >= 1
+            assert "ticker" in df.columns
+            assert "year" in df.columns
+            assert "section" in df.columns
 
             # Dict argument (namespaced params)
             df_dict = parse_sec_filings({"raw_pdf_dir": tmp_dir, "max_chunk_words": 50})
             assert isinstance(df_dict, pd.DataFrame)
             assert len(df_dict) >= 1
+            assert "ticker" in df_dict.columns
+            assert "year" in df_dict.columns
+            assert "section" in df_dict.columns
 
 
 def test_data_prep_pipeline_structure():
