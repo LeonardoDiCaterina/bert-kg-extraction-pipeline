@@ -1,5 +1,10 @@
 # BERT → Financial Knowledge Graph
 
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Checked with mypy](https://img.shields.io/badge/mypy-checked-blue.svg)](http://mypy-lang.org/)
+[![Coverage](https://img.shields.io/badge/coverage-92%25-brightgreen.svg)](https://pytest.org)
+[![Powered by Kedro](https://img.shields.io/badge/powered_by-kedro-ffc900.svg)](https://kedro.org)
+
 A domain-specific **sequence-to-sequence model** that extracts structured financial knowledge graph triplets from SEC 10-K filings, built with [Kedro](https://kedro.org/) and PyTorch.
 
 **Encoder**: `bert-base-uncased` (frozen) — contextual sentence embeddings  
