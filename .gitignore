@@ -27,5 +27,8 @@ logs/
 .env
 .venv
 *.swp
-.idea/
-.vscode/
+# ─── Testing & Coverage ────────────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+

@@ -1,0 +1,3 @@
+text,triplets
+"Alice works for Google in London.","[{""head"": ""Alice"", ""head_type"": ""PERSON"", ""relation"": ""WORKS_FOR"", ""tail"": ""Google"", ""tail_type"": ""ORGANIZATION""}, {""head"": ""Google"", ""head_type"": ""ORGANIZATION"", ""relation"": ""LOCATED_IN"", ""tail"": ""London"", ""tail_type"": ""LOCATION""}]"
+"Bob founded Acme Corp in New York.","[{""head"": ""Bob"", ""head_type"": ""PERSON"", ""relation"": ""FOUNDED_BY"", ""tail"": ""Acme Corp"", ""tail_type"": ""ORGANIZATION""}, {""head"": ""Acme Corp"", ""head_type"": ""ORGANIZATION"", ""relation"": ""LOCATED_IN"", ""tail"": ""New York"", ""tail_type"": ""LOCATION""}]"
