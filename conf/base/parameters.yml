@@ -29,7 +29,7 @@ data_prep:
 teacher:
   model_name: "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4"
   tensor_parallel_size: 1
-  max_model_len: 4096
+  max_model_len: 8192
   gpu_memory_utilization: 0.90
   temperature: 0.1
   max_tokens: 1024

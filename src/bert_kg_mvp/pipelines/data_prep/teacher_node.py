@@ -139,6 +139,7 @@ def generate_teacher_triplets(
     company_map = params.get("company_map", None)
 
     schema_text = format_schema_prompt(schema_params)
+    max_chunk_chars = params.get("max_chunk_chars", 8000)
 
     print(f"Loading Teacher Model ({model_name})...")
     llm_kwargs: Dict[str, Any] = {
@@ -153,28 +154,33 @@ def generate_teacher_triplets(
     sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
 
     companies = [resolve_company_name(row["doc_id"], company_map=company_map) for _, row in parsed_chunks.iterrows()]
+    # Defensively truncate oversized chunks to prevent context overflow
+    chunk_texts = [
+        str(row["text"])[:max_chunk_chars] if len(str(row["text"])) > max_chunk_chars else str(row["text"])
+        for _, row in parsed_chunks.iterrows()
+    ]
 
     # --- AGENT 1: EXTRACTOR ---
     print(f"Agent 1 (Extractor): Processing {len(parsed_chunks)} chunks...")
     ext_prompts = [
-        EXTRACTOR_PROMPT.format(schema=schema_text, company_name=companies[i], text=row["text"])
-        for i, row in parsed_chunks.iterrows()
+        EXTRACTOR_PROMPT.format(schema=schema_text, company_name=companies[i], text=chunk_texts[i])
+        for i in range(len(parsed_chunks))
     ]
     ext_outputs = [r.outputs[0].text.strip() for r in llm.generate(ext_prompts, sampling_params)]
 
     # --- AGENT 2: CRITIC ---
     print("Agent 2 (Critic): Auditing extractions...")
     crit_prompts = [
-        CRITIC_PROMPT.format(schema=schema_text, company_name=companies[i], text=row["text"], triples=ext_outputs[i])
-        for i, row in parsed_chunks.iterrows()
+        CRITIC_PROMPT.format(schema=schema_text, company_name=companies[i], text=chunk_texts[i], triples=ext_outputs[i])
+        for i in range(len(parsed_chunks))
     ]
     crit_outputs = [r.outputs[0].text.strip() for r in llm.generate(crit_prompts, sampling_params)]
 
     # --- AGENT 3: REFINER ---
     print("Agent 3 (Refiner): Generating final JSON...")
     ref_prompts = [
-        REFINER_PROMPT.format(company_name=companies[i], text=row["text"], triples=ext_outputs[i], critique=crit_outputs[i])
-        for i, row in parsed_chunks.iterrows()
+        REFINER_PROMPT.format(company_name=companies[i], text=chunk_texts[i], triples=ext_outputs[i], critique=crit_outputs[i])
+        for i in range(len(parsed_chunks))
     ]
     ref_outputs = [r.outputs[0].text.strip() for r in llm.generate(ref_prompts, sampling_params)]
 
