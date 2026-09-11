@@ -1,7 +1,7 @@
 import math
 import torch
 import torch.nn as nn
-from transformers import BertModel
+from transformers import AutoModel
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=512):
@@ -17,14 +17,44 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :x.size(1), :]
         return x
 
-class BERTToKnowledgeGraph_2(nn.Module):
-    def __init__(self, d_model=768, num_layers=4, num_queries=15, num_relations=5, num_ent_types=7):
+class DynamicKGExtractor(nn.Module):
+    def __init__(
+        self, 
+        encoder_model_name="bert-base-uncased", 
+        d_model=768, 
+        num_layers=4, 
+        num_queries=15, 
+        num_relations=5, 
+        num_ent_types=7,
+        freeze_strategy="partial",
+        unfrozen_top_layers=4
+    ):
         super().__init__()
-        self.encoder = BertModel.from_pretrained("bert-base-uncased")
+        self.encoder = AutoModel.from_pretrained(encoder_model_name)
         
-        # 🧊 FREEZE THE ENCODER: Drastically speeds up training
-        for param in self.encoder.parameters():
-            param.requires_grad = False
+        # 🧊 Dynamic Freezing Strategy
+        if freeze_strategy == "all":
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+        elif freeze_strategy == "partial":
+            # Freeze everything first
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+                
+            # Attempt to find the transformer layers dynamically
+            encoder_layers = None
+            if hasattr(self.encoder, "encoder") and hasattr(self.encoder.encoder, "layer"):
+                encoder_layers = self.encoder.encoder.layer # BERT, RoBERTa
+            elif hasattr(self.encoder, "layer"):
+                encoder_layers = self.encoder.layer # Some older architectures
+                
+            if encoder_layers is not None:
+                # Unfreeze the top N layers
+                for layer in encoder_layers[-unfrozen_top_layers:]:
+                    for param in layer.parameters():
+                        param.requires_grad = True
+            else:
+                print("WARNING: Could not automatically detect encoder layers for partial freezing. Falling back to freezing all.")
             
         self.num_queries = num_queries
         
@@ -46,9 +76,8 @@ class BERTToKnowledgeGraph_2(nn.Module):
         self.obj_end_ptr = nn.Linear(d_model, d_model)
 
     def forward(self, input_ids, attention_mask):
-        # Disable gradient tracking for the encoder forward pass
-        with torch.no_grad():
-            encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+        # We don't use torch.no_grad() here because we may have unfrozen top layers
+        encoder_outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
         memory = encoder_outputs.last_hidden_state
 
         bs = input_ids.size(0)

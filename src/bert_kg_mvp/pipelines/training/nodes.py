@@ -3,13 +3,30 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from bert_kg_mvp.models.bipartite_loss import SetCriterion
-from bert_kg_mvp.models.architecture_2 import BERTToKnowledgeGraph_2
+from bert_kg_mvp.models.architecture_2 import DynamicKGExtractor
 
 def train_model(processed_dataset: dict, tokenizer, parameters: dict):
     device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
     
-    # Instantiate the new architecture
-    model = BERTToKnowledgeGraph_2(num_queries=15, num_relations=5, num_ent_types=7).to(device)
+    # Extract dynamic architecture parameters
+    encoder_model_name = parameters.get("encoder_model_name", "bert-base-uncased")
+    decoder_num_layers = parameters.get("decoder_num_layers", 4)
+    num_queries = parameters.get("num_queries", 15)
+    freeze_strategy = parameters.get("freeze_strategy", "partial")
+    unfrozen_top_layers = parameters.get("unfrozen_top_layers", 4)
+    d_model = parameters.get("d_model", 768)
+    
+    # Instantiate the new dynamic architecture
+    model = DynamicKGExtractor(
+        encoder_model_name=encoder_model_name,
+        d_model=d_model,
+        num_layers=decoder_num_layers,
+        num_queries=num_queries,
+        num_relations=5,
+        num_ent_types=7,
+        freeze_strategy=freeze_strategy,
+        unfrozen_top_layers=unfrozen_top_layers
+    ).to(device)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=parameters.get("learning_rate", 5e-5))
     
@@ -31,8 +48,22 @@ def train_model(processed_dataset: dict, tokenizer, parameters: dict):
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     model.train()
-    # FIX: Force the frozen encoder into eval mode to disable dropout and bypass the MPS SDPA bug
-    model.encoder.eval()
+    if freeze_strategy == "all":
+        # FIX: Force the frozen encoder into eval mode to disable dropout and bypass the MPS SDPA bug
+        model.encoder.eval()
+    elif freeze_strategy == "partial":
+        # Force bottom layers into eval mode, leave top layers in train mode
+        model.encoder.eval()
+        # Find layers to re-enable train mode
+        encoder_layers = None
+        if hasattr(model.encoder, "encoder") and hasattr(model.encoder.encoder, "layer"):
+            encoder_layers = model.encoder.encoder.layer
+        elif hasattr(model.encoder, "layer"):
+            encoder_layers = model.encoder.layer
+            
+        if encoder_layers is not None:
+            for layer in encoder_layers[-unfrozen_top_layers:]:
+                layer.train()
     
     epochs = parameters.get("epochs", 10)
     

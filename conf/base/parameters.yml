@@ -1,6 +1,15 @@
 raw_pdf_dir: "data/01_raw"
 max_chunk_words: 1500
-model_name: "bert-base-uncased"
+
+# Model Architecture
+encoder_model_name: "bert-base-uncased"
+decoder_num_layers: 4
+num_queries: 15
+
+# Freezing Strategy
+freeze_strategy: "partial"   # options: "all", "partial", "none"
+unfrozen_top_layers: 4
+
 max_seq_len: 128
 d_model: 768
 epochs: 10

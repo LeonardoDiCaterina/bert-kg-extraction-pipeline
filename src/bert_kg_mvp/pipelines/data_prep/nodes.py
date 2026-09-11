@@ -3,7 +3,7 @@ import os
 import re
 import torch
 import pandas as pd
-from transformers import BertTokenizer
+from transformers import AutoTokenizer
 from docling.document_converter import DocumentConverter
 
 # High-signal sections in SEC 10-K filings
@@ -78,8 +78,9 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
     max_samples = parameters.get("max_samples", 5000)
     max_gt_triples = parameters.get("max_gt_triples", 15)
     max_seq_length = parameters.get("max_seq_length", 128)
+    encoder_model_name = parameters.get("encoder_model_name", "bert-base-uncased")
     
-    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    tokenizer = AutoTokenizer.from_pretrained(encoder_model_name)
     
     ENTITY_TYPES = ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"]
     RELATION_TYPES = ["has_metric", "produces", "operates_in", "reports_risk", "led_by"]
