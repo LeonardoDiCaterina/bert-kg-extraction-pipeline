@@ -20,7 +20,7 @@ def run_mvp_inference(processed_dataset: dict, tokenizer, trained_model, paramet
     trained_model.to(device)
     trained_model.eval()
 
-    sample_size = 20
+    sample_size = min(20, len(processed_dataset["input_ids"]))
     input_ids_full = processed_dataset["input_ids"][-sample_size:]
     attention_mask_full = processed_dataset["attention_mask"][-sample_size:]
     
@@ -39,6 +39,10 @@ def run_mvp_inference(processed_dataset: dict, tokenizer, trained_model, paramet
             input_ids = input_ids_full[i:i+batch_size].to(device)
             attention_mask = attention_mask_full[i:i+batch_size].to(device)
             
+            # Skip empty batches to prevent PyTorch reshape errors
+            if input_ids.size(0) == 0:
+                continue
+                
             outputs = trained_model(input_ids, attention_mask)
             
             rel_preds = torch.argmax(outputs["rel_logits"], dim=-1) # [B, num_queries]
