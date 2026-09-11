@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 import re
 import torch
 import pandas as pd
@@ -181,20 +182,28 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
     }, tokenizer
 
 def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
-    """Parses SEC 10-K PDFs into table-aware markdown chunks, filtering out boilerplate."""
+    """Parses SEC 10-K PDFs and text filings into table-aware markdown chunks, filtering out boilerplate."""
     converter = DocumentConverter()
     all_chunks = []
     
-    for filename in os.listdir(raw_data_dir):
-        if not filename.endswith(".pdf"):
-            continue
+    target_dir = Path(raw_data_dir)
+    pdf_files = list(target_dir.glob("*.pdf"))
+    edgar_files = list(target_dir.rglob("full-submission.txt")) + list(target_dir.rglob("primary-document.html"))
+    
+    all_files = pdf_files + edgar_files
+    
+    for file_path in all_files:
+        # Generate a readable document ID
+        if "sec-edgar-filings" in str(file_path):
+            doc_id = file_path.parent.parent.parent.name # e.g. AAPL
+        else:
+            doc_id = file_path.name
             
-        pdf_path = os.path.join(raw_data_dir, filename)
-        print(f"Extracting {filename}...")
+        print(f"Extracting {doc_id}...")
         try:
-            doc = converter.convert(pdf_path).document
+            doc = converter.convert(str(file_path)).document
         except Exception as e:
-            print(f"Skipping {filename} due to parse error: {e}")
+            print(f"Skipping {doc_id} due to parse error: {e}")
             continue
         
         current_chunk = ""
@@ -216,13 +225,13 @@ def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
             if item.label == "table":
                 if current_chunk.strip():
                     if is_informative_chunk(current_chunk):
-                        all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+                        all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip()})
                         chunk_idx += 1
                     current_chunk = ""
                 
                 table_md = item.export_to_markdown(doc)
                 table_text = f"[TABLE START]\n{table_md}\n[TABLE END]"
-                all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": table_text})
+                all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": table_text})
                 chunk_idx += 1
                 
             elif hasattr(item, 'text') and item.text:
@@ -230,11 +239,11 @@ def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
                 
                 if len(current_chunk.split()) > max_words:
                     if is_informative_chunk(current_chunk):
-                        all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+                        all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip()})
                         chunk_idx += 1
                     current_chunk = ""
                     
         if current_chunk.strip() and is_informative_chunk(current_chunk):
-            all_chunks.append({"doc_id": filename, "chunk_id": chunk_idx, "text": current_chunk.strip()})
+            all_chunks.append({"doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip()})
             
     return pd.DataFrame(all_chunks)
