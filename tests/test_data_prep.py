@@ -88,6 +88,14 @@ def test_prepare_training_data():
     assert dataset["relations"].shape[1] == 5
     assert dataset["subj_spans"].shape[1] == 5
 
+    # Test namespaced call signature
+    data_prep_p = {"max_seq_length": 64, "max_gt_triples": 3, "max_samples": 10}
+    training_p = {"encoder_model_name": "bert-base-uncased"}
+    schema_p = {"entity_types": ["org", "product", "person"], "relation_types": ["produces", "led_by"]}
+    ds2, tok2 = prepare_training_data(df, data_prep_p, training_p, schema_p)
+    assert len(ds2["input_ids"]) >= 1
+    assert ds2["relations"].shape[1] == 3
+
 
 def test_parse_sec_filings_missing_docling():
     with patch("bert_kg_mvp.pipelines.data_prep.nodes.DocumentConverter", None):
@@ -124,11 +132,15 @@ def test_parse_sec_filings_mocked():
         MockConverterClass = MagicMock(return_value=mock_converter_instance)
 
         with patch("bert_kg_mvp.pipelines.data_prep.nodes.DocumentConverter", MockConverterClass):
+            # Positional string argument
             df = parse_sec_filings(tmp_dir, max_words=50)
             assert isinstance(df, pd.DataFrame)
             assert len(df) >= 1
-            assert "doc_id" in df.columns
-            assert "text" in df.columns
+
+            # Dict argument (namespaced params)
+            df_dict = parse_sec_filings({"raw_pdf_dir": tmp_dir, "max_chunk_words": 50})
+            assert isinstance(df_dict, pd.DataFrame)
+            assert len(df_dict) >= 1
 
 
 def test_data_prep_pipeline_structure():

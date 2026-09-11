@@ -27,10 +27,12 @@ def test_parse_triplet_string():
 
 
 class MockExtractor(nn.Module):
-    def __init__(self, num_queries=3, seq_len=8, num_relations=5, num_ent_types=7):
+    def __init__(self, num_queries=3, seq_len=8, num_relations=5, num_ent_types=7, **kwargs):
         super().__init__()
         self.num_queries = num_queries
         self.seq_len = seq_len
+        self.num_relations = num_relations
+        self.num_ent_types = num_ent_types
         self.dummy_param = nn.Parameter(torch.tensor([1.0], requires_grad=True))
         self.encoder = nn.Module()
         self.encoder.encoder = nn.Module()
@@ -40,9 +42,9 @@ class MockExtractor(nn.Module):
         bs = input_ids.size(0)
         dev = input_ids.device
         return {
-            "rel_logits": torch.randn(bs, self.num_queries, 6, device=dev) * self.dummy_param,
-            "subj_type_logits": torch.randn(bs, self.num_queries, 7, device=dev) * self.dummy_param,
-            "obj_type_logits": torch.randn(bs, self.num_queries, 7, device=dev) * self.dummy_param,
+            "rel_logits": torch.randn(bs, self.num_queries, self.num_relations + 1, device=dev) * self.dummy_param,
+            "subj_type_logits": torch.randn(bs, self.num_queries, self.num_ent_types, device=dev) * self.dummy_param,
+            "obj_type_logits": torch.randn(bs, self.num_queries, self.num_ent_types, device=dev) * self.dummy_param,
             "subj_start_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
             "subj_end_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
             "obj_start_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
@@ -68,19 +70,25 @@ def test_inference_pipeline_node():
     mock_tokenizer.decode.return_value = "dummy entity"
 
     model = MockExtractor(num_queries=3, seq_len=8)
-    params = {"batch_size": 2}
+    params = {"batch_size": 2, "sample_size": 4}
+    schema = {"relation_types": ["rel1", "rel2"]}
 
-    metrics_df = run_mvp_inference(dataset, mock_tokenizer, model, params)
+    # Test namespaced call signature
+    metrics_df = run_mvp_inference(dataset, mock_tokenizer, model, params, schema)
     assert isinstance(metrics_df, pd.DataFrame)
     assert "precision" in metrics_df.columns
     assert "recall" in metrics_df.columns
     assert "f1_score" in metrics_df.columns
     assert len(metrics_df) == 1
 
+    # Test legacy single-dict signature
+    metrics_legacy = run_mvp_inference(dataset, mock_tokenizer, model, params)
+    assert isinstance(metrics_legacy, pd.DataFrame)
+
 
 @patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
 def test_train_model_node(mock_extractor_cls):
-    mock_extractor_cls.return_value = MockExtractor(num_queries=3, seq_len=8)
+    mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
 
     dataset = make_dummy_dataset(n_samples=4, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
@@ -95,14 +103,23 @@ def test_train_model_node(mock_extractor_cls):
         "num_queries": 3,
         "gradient_accumulation_steps": 1,
     }
+    schema = {
+        "entity_types": ["e1", "e2"],
+        "relation_types": ["r1", "r2"],
+    }
 
-    trained_model = train_model(dataset, mock_tokenizer, params)
+    # Namespaced call
+    trained_model = train_model(dataset, mock_tokenizer, params, schema)
     assert trained_model is not None
+
+    # Single-dict call
+    trained_model_legacy = train_model(dataset, mock_tokenizer, params)
+    assert trained_model_legacy is not None
 
 
 @patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
 def test_train_model_freeze_all(mock_extractor_cls):
-    mock_extractor_cls.return_value = MockExtractor(num_queries=3, seq_len=8)
+    mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
 
     dataset = make_dummy_dataset(n_samples=2, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
