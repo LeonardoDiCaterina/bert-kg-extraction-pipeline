@@ -1,6 +1,11 @@
 import pandas as pd
 import json
-from vllm import LLM, SamplingParams
+
+try:
+    from vllm import LLM, SamplingParams
+except ImportError:
+    LLM = None  # type: ignore[assignment, misc]
+    SamplingParams = None  # type: ignore[assignment, misc]
 
 FIN_SCHEMA = """
 Entity Types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
@@ -95,6 +100,10 @@ def get_company_name(doc_id: str) -> str:
     return "The Corporation"
 
 def generate_teacher_triplets(parsed_chunks: pd.DataFrame) -> pd.DataFrame:
+    if LLM is None or SamplingParams is None:
+        raise ImportError(
+            "vllm is required to run the teacher model. Please install it with `pip install vllm`."
+        )
     print("Loading Qwen 72B Teacher Model onto H100...")
     llm = LLM(model="Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4", tensor_parallel_size=1, max_model_len=4096)
     sampling_params = SamplingParams(temperature=0.1, max_tokens=1024)
@@ -111,7 +120,7 @@ def generate_teacher_triplets(parsed_chunks: pd.DataFrame) -> pd.DataFrame:
     ext_outputs = [r.outputs[0].text.strip() for r in llm.generate(ext_prompts, sampling_params)]
 
     # --- AGENT 2: CRITIC ---
-    print(f"Agent 2 (Critic): Auditing extractions...")
+    print("Agent 2 (Critic): Auditing extractions...")
     crit_prompts = [
         CRITIC_PROMPT.format(schema=FIN_SCHEMA, company_name=companies[i], text=row['text'], triples=ext_outputs[i]) 
         for i, row in parsed_chunks.iterrows()
@@ -119,7 +128,7 @@ def generate_teacher_triplets(parsed_chunks: pd.DataFrame) -> pd.DataFrame:
     crit_outputs = [r.outputs[0].text.strip() for r in llm.generate(crit_prompts, sampling_params)]
 
     # --- AGENT 3: REFINER ---
-    print(f"Agent 3 (Refiner): Generating final JSON...")
+    print("Agent 3 (Refiner): Generating final JSON...")
     ref_prompts = [
         REFINER_PROMPT.format(company_name=companies[i], text=row['text'], triples=ext_outputs[i], critique=crit_outputs[i]) 
         for i, row in parsed_chunks.iterrows()

@@ -1,4 +1,4 @@
-from bert_kg_mvp.pipelines.data_prep.nodes import parse_sec_filings, prepare_training_data
+from bert_kg_mvp.pipelines.data_prep.nodes import parse_sec_filings
 from kedro.pipeline import Pipeline, node
 from .teacher_node import generate_teacher_triplets
 

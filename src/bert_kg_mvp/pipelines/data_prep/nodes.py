@@ -2,10 +2,15 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
 import torch
 import pandas as pd
 from transformers import AutoTokenizer
-from docling.document_converter import DocumentConverter
+
+try:
+    from docling.document_converter import DocumentConverter
+except ImportError:
+    DocumentConverter = None  # type: ignore[assignment, misc]
 
 # High-signal sections in SEC 10-K filings
 TARGET_ITEMS_PATTERN = re.compile(
@@ -181,10 +186,13 @@ def prepare_training_data(teacher_data: pd.DataFrame, parameters: dict):
         "obj_spans": torch.stack(gt_obj_spans_list)
     }, tokenizer
 
-import tempfile
 
 def parse_sec_filings(raw_data_dir: str, max_words: int = 1500) -> pd.DataFrame:
     """Parses SEC 10-K PDFs and text filings into table-aware markdown chunks, filtering out boilerplate."""
+    if DocumentConverter is None:
+        raise ImportError(
+            "docling is required to parse SEC filings. Please install it with `pip install docling`."
+        )
     converter = DocumentConverter()
     all_chunks = []
     

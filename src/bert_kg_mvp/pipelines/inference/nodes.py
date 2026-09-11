@@ -14,7 +14,8 @@ def parse_triplet_string(text):
 
 def run_mvp_inference(processed_dataset: dict, tokenizer, trained_model, parameters: dict):
     device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-    if str(device) == "mps": torch.mps.empty_cache()
+    if str(device) == "mps":
+        torch.mps.empty_cache()
     gc.collect()
 
     trained_model.to(device)
@@ -90,7 +91,8 @@ def run_mvp_inference(processed_dataset: dict, tokenizer, trained_model, paramet
                     print(f"PREDICTED: {pred_set}")
             
             del input_ids, attention_mask, outputs
-            if str(device) == "mps": torch.mps.empty_cache()
+            if str(device) == "mps":
+                torch.mps.empty_cache()
 
     precision = true_positives / max((true_positives + false_positives), 1)
     recall = true_positives / max((true_positives + false_negatives), 1)

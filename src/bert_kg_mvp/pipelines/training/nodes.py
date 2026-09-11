@@ -1,6 +1,5 @@
 import gc
 import torch
-import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from bert_kg_mvp.models.bipartite_loss import SetCriterion
 from bert_kg_mvp.models.architecture_2 import DynamicKGExtractor
@@ -107,9 +106,11 @@ def train_model(processed_dataset: dict, tokenizer, parameters: dict):
             if step % 100 == 0:
                 print(f"Epoch {epoch+1}/{epochs} | Batch {step}/{len(dataloader)} | Loss: {loss.item():.4f}")
             
-            if str(device) == "mps": torch.mps.empty_cache()
+            if str(device) == "mps":
+                torch.mps.empty_cache()
             del outputs, loss, loss_dict, batch
-            if step % 50 == 0: gc.collect()
+            if step % 50 == 0:
+                gc.collect()
             
         print(f"Epoch {epoch+1}/{epochs} - Avg Loss: {(total_loss / len(dataloader)):.4f}")
         
