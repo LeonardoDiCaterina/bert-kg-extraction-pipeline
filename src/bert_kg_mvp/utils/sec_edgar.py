@@ -119,7 +119,16 @@ def parse_doc_metadata(doc_id: str) -> Dict[str, str]:
             ticker = m.group(1)
 
     # --- Year ---
-    year_m = re.search(r"(20\d{2}|19\d{2})", doc_id)
-    year = year_m.group(1) if year_m else ""
+    year = ""
+    # Check for SEC EDGAR accession number format: CIK-YY-Seq (e.g. 0000320193-24-000106)
+    acc_m = re.search(r"\d{10}-(\d{2})-\d{6}", doc_id)
+    if acc_m:
+        yy = int(acc_m.group(1))
+        year = str(2000 + yy if yy < 50 else 1900 + yy)
+    else:
+        # Match standalone 4-digit year bounded by non-digits
+        year_m = re.search(r"(?<!\d)(20\d{2}|19\d{2})(?!\d)", doc_id)
+        if year_m:
+            year = year_m.group(1)
 
     return {"ticker": ticker, "year": year, "section": ""}

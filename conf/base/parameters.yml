@@ -34,6 +34,9 @@ teacher:
   gpu_memory_utilization: 0.90
   temperature: 0.1
   max_tokens: 1024
+  max_samples: 5000              # Distill gold triples from 5000 representative chunks (set null for full dataset)
+  checkpoint_dir: "data/02_intermediate"  # Auto-save/resume Agent 1, 2, 3 checkpoints
+  resume_checkpoints: true       # Resume completed stages without recomputation
   company_map:
     AAPL: "Apple Inc."
     MSFT: "Microsoft Corp."

@@ -1,5 +1,6 @@
 import json
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from bert_kg_mvp.utils import clean_json_string, resolve_company_name
@@ -115,6 +116,40 @@ def format_schema_prompt(schema_params: Optional[Dict[str, Any]]) -> str:
     return f"\nEntity Types: {ent_str}.\nRelationship Types: {rel_str}.\n"
 
 
+def _save_checkpoint(data: List[str], path: Path) -> None:
+    """Safely saves intermediate agent outputs to disk in Parquet or CSV format."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame({"output": data})
+        try:
+            df.to_parquet(path, index=False)
+        except Exception:
+            df.to_csv(path.with_suffix(".csv"), index=False)
+        print(f"[Teacher Pipeline] Checkpoint saved: {path} ({len(data)} rows)")
+    except Exception as e:
+        print(f"[Teacher Pipeline] Warning: Could not save checkpoint to {path}: {e}")
+
+
+def _load_checkpoint(path: Path, expected_len: int) -> Optional[List[str]]:
+    """Loads intermediate agent outputs from disk if the row count matches expected_len."""
+    candidates = [path, path.with_suffix(".csv")]
+    for candidate in candidates:
+        if candidate.exists():
+            try:
+                df = pd.read_parquet(candidate) if candidate.suffix == ".parquet" else pd.read_csv(candidate)
+                if "output" in df.columns and len(df) == expected_len:
+                    print(f"[Teacher Pipeline] Resumed from checkpoint: {candidate} ({len(df)} rows)")
+                    return df["output"].fillna("").astype(str).tolist()
+                elif len(df) != expected_len:
+                    print(
+                        f"[Teacher Pipeline] Checkpoint {candidate} row count ({len(df)}) does not match "
+                        f"current input length ({expected_len}). Skipping."
+                    )
+            except Exception as e:
+                print(f"[Teacher Pipeline] Notice: Failed to load checkpoint {candidate}: {e}")
+    return None
+
+
 def generate_teacher_triplets(
     parsed_chunks: pd.DataFrame,
     teacher_params: Optional[Dict[str, Any]] = None,
@@ -123,6 +158,11 @@ def generate_teacher_triplets(
     """
     Orchestrates the 3-agent LLM distillation pipeline (Extractor -> Critic -> Refiner).
     Parameters are dynamically loaded from `params:teacher` and `params:schema`.
+
+    Resilience features:
+    - Intermediate checkpointing for Agent 1, Agent 2, and Agent 3 to prevent GPU compute loss.
+    - Defensive prompt clamping in Agent 3 to guarantee total context stays within max_model_len.
+    - Optional stratified subsampling via `max_samples` parameter.
     """
     if LLM is None or SamplingParams is None:
         raise ImportError(
@@ -132,7 +172,7 @@ def generate_teacher_triplets(
     params = teacher_params or {}
     model_name = params.get("model_name", "Qwen/Qwen2.5-72B-Instruct-GPTQ-Int4")
     tp_size = params.get("tensor_parallel_size", 1)
-    max_model_len = params.get("max_model_len", 4096)
+    max_model_len = params.get("max_model_len", 8192)
     gpu_memory_utilization = params.get("gpu_memory_utilization", 0.90)
     temperature = params.get("temperature", 0.1)
     max_tokens = params.get("max_tokens", 1024)
@@ -141,17 +181,70 @@ def generate_teacher_triplets(
     schema_text = format_schema_prompt(schema_params)
     max_chunk_chars = params.get("max_chunk_chars", 8000)
 
-    print(f"Loading Teacher Model ({model_name})...")
-    llm_kwargs: Dict[str, Any] = {
-        "model": model_name,
-        "tensor_parallel_size": tp_size,
-        "max_model_len": max_model_len,
-    }
-    if gpu_memory_utilization is not None:
-        llm_kwargs["gpu_memory_utilization"] = float(gpu_memory_utilization)
+    # Subsampling configuration
+    max_samples = params.get("max_samples", None)
+    if max_samples is not None and 0 < int(max_samples) < len(parsed_chunks):
+        target_n = int(max_samples)
+        sample_random_state = params.get("sample_random_state", 42)
+        print(f"[Teacher Pipeline] Subsampling {target_n} chunks (from {len(parsed_chunks)} total) for teacher distillation...")
+        if "ticker" in parsed_chunks.columns and parsed_chunks["ticker"].nunique() > 1:
+            sampled = (
+                parsed_chunks.groupby("ticker", group_keys=False)
+                .apply(
+                    lambda g: g.sample(
+                        min(len(g), max(1, int(round(len(g) * target_n / len(parsed_chunks))))),
+                        random_state=sample_random_state,
+                    )
+                )
+            )
+            if len(sampled) > target_n:
+                sampled = sampled.head(target_n)
+            elif len(sampled) < target_n:
+                remainder = parsed_chunks[~parsed_chunks.index.isin(sampled.index)]
+                fill = remainder.sample(min(len(remainder), target_n - len(sampled)), random_state=sample_random_state)
+                sampled = pd.concat([sampled, fill], ignore_index=True)
+            parsed_chunks = sampled.reset_index(drop=True)
+        else:
+            parsed_chunks = parsed_chunks.sample(n=target_n, random_state=sample_random_state).reset_index(drop=True)
 
-    llm = LLM(**llm_kwargs)
-    sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
+    # Checkpoint configuration
+    checkpoint_dir_str = params.get("checkpoint_dir", "data/02_intermediate")
+    checkpoint_dir = Path(checkpoint_dir_str) if checkpoint_dir_str else None
+    resume_checkpoints = params.get("resume_checkpoints", True)
+
+    agent1_path = checkpoint_dir / "teacher_agent1_extractions.parquet" if checkpoint_dir else None
+    agent2_path = checkpoint_dir / "teacher_agent2_critiques.parquet" if checkpoint_dir else None
+    agent3_path = checkpoint_dir / "teacher_agent3_refinements.parquet" if checkpoint_dir else None
+
+    # Prompt safety limits for Agent 3 (Refiner)
+    max_ref_text_chars = params.get("max_refiner_text_chars", 4000)
+    max_ref_triples_chars = params.get("max_refiner_triples_chars", 2500)
+    max_ref_critique_chars = params.get("max_refiner_critique_chars", 2500)
+
+    # Pre-check if all stages are already checkpointed
+    cached_ref_outputs = (
+        _load_checkpoint(agent3_path, len(parsed_chunks))
+        if (resume_checkpoints and agent3_path)
+        else None
+    )
+
+    llm = None
+    sampling_params = None
+
+    def _get_llm():
+        nonlocal llm, sampling_params
+        if llm is None:
+            print(f"Loading Teacher Model ({model_name})...")
+            llm_kwargs: Dict[str, Any] = {
+                "model": model_name,
+                "tensor_parallel_size": tp_size,
+                "max_model_len": max_model_len,
+            }
+            if gpu_memory_utilization is not None:
+                llm_kwargs["gpu_memory_utilization"] = float(gpu_memory_utilization)
+            llm = LLM(**llm_kwargs)
+            sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
+        return llm, sampling_params
 
     companies = [resolve_company_name(row["doc_id"], company_map=company_map) for _, row in parsed_chunks.iterrows()]
     # Defensively truncate oversized chunks to prevent context overflow
@@ -161,28 +254,62 @@ def generate_teacher_triplets(
     ]
 
     # --- AGENT 1: EXTRACTOR ---
-    print(f"Agent 1 (Extractor): Processing {len(parsed_chunks)} chunks...")
-    ext_prompts = [
-        EXTRACTOR_PROMPT.format(schema=schema_text, company_name=companies[i], text=chunk_texts[i])
-        for i in range(len(parsed_chunks))
-    ]
-    ext_outputs = [r.outputs[0].text.strip() for r in llm.generate(ext_prompts, sampling_params)]
+    ext_outputs = (
+        _load_checkpoint(agent1_path, len(parsed_chunks))
+        if (resume_checkpoints and agent1_path)
+        else None
+    )
+    if ext_outputs is None:
+        engine, s_params = _get_llm()
+        print(f"Agent 1 (Extractor): Processing {len(parsed_chunks)} chunks...")
+        ext_prompts = [
+            EXTRACTOR_PROMPT.format(schema=schema_text, company_name=companies[i], text=chunk_texts[i])
+            for i in range(len(parsed_chunks))
+        ]
+        ext_outputs = [r.outputs[0].text.strip() for r in engine.generate(ext_prompts, s_params)]
+        if agent1_path:
+            _save_checkpoint(ext_outputs, agent1_path)
+    else:
+        print(f"Agent 1 (Extractor): Skipped (loaded {len(ext_outputs)} outputs from checkpoint).")
 
     # --- AGENT 2: CRITIC ---
-    print("Agent 2 (Critic): Auditing extractions...")
-    crit_prompts = [
-        CRITIC_PROMPT.format(schema=schema_text, company_name=companies[i], text=chunk_texts[i], triples=ext_outputs[i])
-        for i in range(len(parsed_chunks))
-    ]
-    crit_outputs = [r.outputs[0].text.strip() for r in llm.generate(crit_prompts, sampling_params)]
+    crit_outputs = (
+        _load_checkpoint(agent2_path, len(parsed_chunks))
+        if (resume_checkpoints and agent2_path)
+        else None
+    )
+    if crit_outputs is None:
+        engine, s_params = _get_llm()
+        print(f"Agent 2 (Critic): Auditing extractions for {len(parsed_chunks)} chunks...")
+        crit_prompts = [
+            CRITIC_PROMPT.format(schema=schema_text, company_name=companies[i], text=chunk_texts[i], triples=ext_outputs[i])
+            for i in range(len(parsed_chunks))
+        ]
+        crit_outputs = [r.outputs[0].text.strip() for r in engine.generate(crit_prompts, s_params)]
+        if agent2_path:
+            _save_checkpoint(crit_outputs, agent2_path)
+    else:
+        print(f"Agent 2 (Critic): Skipped (loaded {len(crit_outputs)} outputs from checkpoint).")
 
     # --- AGENT 3: REFINER ---
-    print("Agent 3 (Refiner): Generating final JSON...")
-    ref_prompts = [
-        REFINER_PROMPT.format(company_name=companies[i], text=chunk_texts[i], triples=ext_outputs[i], critique=crit_outputs[i])
-        for i in range(len(parsed_chunks))
-    ]
-    ref_outputs = [r.outputs[0].text.strip() for r in llm.generate(ref_prompts, sampling_params)]
+    ref_outputs = cached_ref_outputs
+    if ref_outputs is None:
+        engine, s_params = _get_llm()
+        print(f"Agent 3 (Refiner): Generating final JSON for {len(parsed_chunks)} chunks...")
+        ref_prompts = [
+            REFINER_PROMPT.format(
+                company_name=companies[i],
+                text=chunk_texts[i][:max_ref_text_chars],
+                triples=ext_outputs[i][:max_ref_triples_chars],
+                critique=crit_outputs[i][:max_ref_critique_chars],
+            )
+            for i in range(len(parsed_chunks))
+        ]
+        ref_outputs = [r.outputs[0].text.strip() for r in engine.generate(ref_prompts, s_params)]
+        if agent3_path:
+            _save_checkpoint(ref_outputs, agent3_path)
+    else:
+        print(f"Agent 3 (Refiner): Skipped (loaded {len(ref_outputs)} outputs from checkpoint).")
 
     extracted_data = []
     for i, raw_output in enumerate(ref_outputs):
