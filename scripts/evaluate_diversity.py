@@ -51,11 +51,28 @@ def main():
     total_valid_triples = 0
     non_empty_chunks = 0
     
+    import ast
+    
     for _, row in df.iterrows():
-        raw = clean_triples_string(row.get("triples", "[]"))
+        raw = row.get("triples", "[]")
+        
         try:
-            triples = json.loads(raw) if isinstance(raw, str) else raw
-            if not isinstance(triples, list):
+            # If parquet loaded it as a native list or numpy array
+            if isinstance(raw, (list, np.ndarray)):
+                triples = list(raw)
+            else:
+                # It's a string, fix missing commas between dicts
+                fixed_raw = re.sub(r"\}\s*\{", "}, {", str(raw))
+                
+                try:
+                    # Attempt strict JSON parse first (fastest)
+                    json_str = fixed_raw.replace("'", '"').replace("True", "true").replace("False", "false").replace("None", "null")
+                    triples = json.loads(json_str)
+                except Exception:
+                    # Fallback to python AST literal eval (handles single quotes natively)
+                    triples = ast.literal_eval(fixed_raw)
+                    
+            if not isinstance(triples, (list, tuple)):
                 continue
                 
             if len(triples) > 0:
@@ -71,7 +88,7 @@ def main():
                 if "relation" in t: all_relations.append(str(t["relation"]))
                 total_valid_triples += 1
                 
-        except Exception:
+        except Exception as e:
             continue
             
     # Calculate Ratios
