@@ -46,7 +46,7 @@ teacher:
   temperature: 0.1
   max_tokens: 1024
   batch_size: 500                # Stream distillation in micro-batches (persists every 500 chunks to disk)
-  max_samples: 5000              # Distill gold triples from 5000 representative chunks (set null for full dataset)
+  max_samples: null              # Distill gold triples from 5000 representative chunks (set null for full dataset)
   checkpoint_dir: "data/02_intermediate"  # Auto-save/resume Agent 1, 2, 3 checkpoints
   resume_checkpoints: true       # Resume completed stages without recomputation
   company_map:
