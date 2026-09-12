@@ -3,17 +3,28 @@ schema:
   entity_types:
     - "org"
     - "person"
+    - "comp"
     - "product"
     - "segment"
     - "fin_metric"
     - "risk_factor"
     - "event"
+    - "regulatory_requirement"
+    - "esg_topic"
   relation_types:
     - "has_metric"
     - "produces"
     - "operates_in"
     - "reports_risk"
     - "led_by"
+    - "has_stake_in"
+    - "impacts"
+    - "involved_in"
+    - "impacted_by"
+    - "discloses"
+    - "complies_with"
+    - "supplies"
+    - "partners_with"
 
 # ─── Data Preparation ────────────────────────────────────────────────────────
 data_prep:

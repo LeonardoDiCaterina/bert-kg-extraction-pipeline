@@ -14,15 +14,23 @@ except ImportError:
 
 # Default schema fallback
 DEFAULT_FIN_SCHEMA = """
-Entity Types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
-Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
+Entity Types: ORG, PERSON, COMP, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT, REGULATORY_REQUIREMENT, ESG_TOPIC.
+Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By, Has_Stake_In, Impacts, Involved_In, Impacted_By, Discloses, Complies_With, Supplies, Partners_With.
 
 Semantic Signatures & Allowed Relations:
 - Has_Metric: [ORG or SEGMENT] -> [FIN_METRIC] (Named financial metric, ratio, or accounting line item; tail must be metric name, never a raw number, dollar amount, or full sentence)
-- Produces: [ORG or SEGMENT] -> [PRODUCT] (Commercial product, software platform, hardware, online service)
-- Operates_In: [ORG] -> [SEGMENT] (Reportable business segment, division, or geographic operating unit)
+- Produces: [ORG, SEGMENT or COMP] -> [PRODUCT] (Commercial product, software platform, hardware, online service)
+- Operates_In: [ORG or COMP] -> [SEGMENT] (Reportable business segment, division, or geographic operating unit)
 - Reports_Risk: [ORG or SEGMENT] -> [RISK_FACTOR] (Explicit operational, competitive, macroeconomic, or market risk factor; concise noun phrase of 1 to 5 words)
-- Led_By: [ORG or SEGMENT] -> [PERSON] (Named executive officer, director, or board member)
+- Led_By: [ORG, SEGMENT or COMP] -> [PERSON] (Named executive officer, director, or board member)
+- Has_Stake_In: [ORG or COMP] -> [ORG or COMP] (Indicates full or partial ownership or equity interest)
+- Impacts: [EVENT, RISK_FACTOR, REGULATORY_REQUIREMENT or ESG_TOPIC] -> [FIN_METRIC, ORG or SEGMENT] (Specifies the broad influence or effect an entity or event has on financial performance, market trends, or other key outcomes)
+- Involved_In: [ORG, PERSON or COMP] -> [EVENT] (Specifies direct involvement in an event such as a merger, acquisition, or litigation)
+- Impacted_By: [ORG, SEGMENT or FIN_METRIC] -> [EVENT or RISK_FACTOR] (Indicates that the entity was materially affected by a major event)
+- Discloses: [ORG] -> [ESG_TOPIC, FIN_METRIC or RISK_FACTOR] (Reveals or reports information, metrics, or developments)
+- Complies_With: [ORG or COMP] -> [REGULATORY_REQUIREMENT] (Meets regulatory or policy requirements)
+- Supplies: [COMP] -> [ORG or COMP] (Indicates vendor or supplier relationship)
+- Partners_With: [ORG or COMP] -> [ORG or COMP] (Indicates formal or strategic collaboration)
 """
 
 EXTRACTOR_PROMPT = """<|im_start|>system
@@ -31,27 +39,46 @@ You are a principal financial knowledge engineer specializing in SEC Form 10-K f
 ================================================================================
 CRITICAL ONTOLOGY & TYPE CONSTRAINTS (ZERO DEVIATION PERMITTED)
 ================================================================================
-Entity Types (STRICTLY LIMITED TO THESE 7 LABELS):
-1. ORG: Corporations, companies, subsidiaries, firms (FORBIDDEN: "Company", "Corporation", "Firm").
-2. PERSON: Named individuals, corporate officers, directors (e.g. "Tim Cook", "Chuck Robbins").
-3. PRODUCT: Commercial products, hardware lines, software platforms, commercial services (FORBIDDEN: "Program", "Offering").
-4. SEGMENT: Reportable business units, reporting segments, operating divisions (FORBIDDEN: "Division", "Unit").
-5. FIN_METRIC: Named financial metrics, ratios, accounting items, valuation measures (FORBIDDEN: "Metric", "KPI", "Financial Metric", "Description").
-6. RISK_FACTOR: Explicit operational, legal, macroeconomic, supply-chain, or cybersecurity risk factors (FORBIDDEN: "Risk", "Issue").
-7. EVENT: Distinct corporate milestone events, restructurings, or acquisitions.
+Entity Types (STRICTLY LIMITED TO THESE 10 LABELS):
+1. ORG: Filing Company (Issuer: The public company that is the subject of the 10-K filing) (FORBIDDEN: "Company", "Corporation", "Firm").
+2. PERSON: Key individuals (e.g., CEO, CFO, Board members).
+3. COMP: External companies referenced in the filing, including competitors, suppliers, customers, or partners.
+4. PRODUCT: Products or services offered by the company or competitors (e.g., iPhone, AWS) (FORBIDDEN: "Program", "Offering").
+5. SEGMENT: Internal divisions or business segments of the filer ORG (e.g., Cloud segment, North America retail) (FORBIDDEN: "Division", "Unit").
+6. FIN_METRIC: Financial metrics or values (e.g., Net Income, EBITDA, CapEx, Revenue) (FORBIDDEN: "Metric", "KPI", "Financial Metric", "Description").
+7. RISK_FACTOR: Documented risks (e.g., market risk, supply chain risk, regulatory risk) (FORBIDDEN: "Risk", "Issue").
+8. EVENT: Material events such as pandemics, natural disasters, M&A events, regulatory changes.
+9. REGULATORY_REQUIREMENT: Specific regulations or legal frameworks (e.g., Basel III, GDPR, SEC requirements).
+10. ESG_TOPIC: Environmental, Social, and Governance themes (e.g., Carbon Emissions, DEI, Climate Risk).
 
-Relationship Types & Semantic Signatures (STRICTLY LIMITED TO THESE 5 LABELS):
+Relationship Types & Semantic Signatures (STRICTLY LIMITED TO THESE 13 LABELS):
 1. Has_Metric: (head: ORG | SEGMENT, tail: FIN_METRIC)
    - Company or segment tracks, reports, or values a named financial metric.
    - Tail MUST be the metric name (1-5 words), NEVER a dollar amount, percentage, date, or full sentence.
-2. Produces: (head: ORG | SEGMENT, tail: PRODUCT)
-   - Company or segment develops, manufactures, sells, or delivers a product/platform.
-3. Operates_In: (head: ORG, tail: SEGMENT)
-   - Company operates or reports revenue under a business segment or division.
+2. Produces: (head: ORG | SEGMENT | COMP, tail: PRODUCT)
+   - Entity develops, manufactures, sells, or delivers a product/platform.
+3. Operates_In: (head: ORG | COMP, tail: SEGMENT)
+   - Entity operates or reports revenue under a business segment or division.
 4. Reports_Risk: (head: ORG | SEGMENT, tail: RISK_FACTOR)
-   - Company or segment identifies an explicit risk factor. Tail MUST be a concise noun phrase (1-5 words), NEVER a sentence or narrative.
-5. Led_By: (head: ORG | SEGMENT, tail: PERSON)
-   - Company or business unit is led or managed by an executive or director.
+   - Entity identifies an explicit risk factor. Tail MUST be a concise noun phrase (1-5 words), NEVER a sentence or narrative.
+5. Led_By: (head: ORG | SEGMENT | COMP, tail: PERSON)
+   - Entity is led or managed by an executive or director.
+6. Has_Stake_In: (head: ORG | COMP, tail: ORG | COMP)
+   - Indicates full or partial ownership or equity interest.
+7. Impacts: (head: EVENT | RISK_FACTOR | REGULATORY_REQUIREMENT | ESG_TOPIC, tail: FIN_METRIC | ORG | SEGMENT)
+   - Specifies the broad influence or effect an entity or event has on financial performance, market trends, or other key outcomes.
+8. Involved_In: (head: ORG | PERSON | COMP, tail: EVENT)
+   - Specifies direct involvement in an event such as a merger, acquisition, or litigation.
+9. Impacted_By: (head: ORG | SEGMENT | FIN_METRIC, tail: EVENT | RISK_FACTOR)
+   - Indicates that the entity was materially affected by a major event.
+10. Discloses: (head: ORG, tail: ESG_TOPIC | FIN_METRIC | RISK_FACTOR)
+   - Reveals or reports information, metrics, or developments.
+11. Complies_With: (head: ORG | COMP, tail: REGULATORY_REQUIREMENT)
+   - Meets regulatory or policy requirements.
+12. Supplies: (head: COMP, tail: ORG | COMP)
+   - Indicates vendor or supplier relationship.
+13. Partners_With: (head: ORG | COMP, tail: ORG | COMP)
+   - Indicates formal or strategic collaboration.
 
 ================================================================================
 GROUNDING & SPAN RULES FOR NEURAL STUDENT EXTRACTION
@@ -68,7 +95,7 @@ GROUNDING & SPAN RULES FOR NEURAL STUDENT EXTRACTION
 4. NO STANDALONE NUMBERS, PERCENTAGES, OR DATES:
    - Never extract "$1.5 billion", "12%", "2024", or "$500M" as an entity. The financial metric itself is the FIN_METRIC.
 5. NEGATIVE EXTRACTION:
-   - If the text does not explicitly state any of the 5 allowed relations, return an empty JSON list: []. Do not invent relations.
+   - If the text does not explicitly state any of the allowed relations, return an empty JSON list: []. Do not invent relations.
 6. OUTPUT FORMAT:
    - Output strictly a JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". No markdown, no explanations.
 
@@ -136,14 +163,22 @@ You are the Lead Knowledge Graph Auditor for the FinReflectKG pipeline. Your tas
 Any defect in these triples will degrade downstream neural student model training. You must detect every violation and provide explicit, actionable corrections.
 
 SCHEMA REFERENCE:
-- Entity Types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT
-- Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By
+- Entity Types: ORG, PERSON, COMP, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT, REGULATORY_REQUIREMENT, ESG_TOPIC
+- Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By, Has_Stake_In, Impacts, Involved_In, Impacted_By, Discloses, Complies_With, Supplies, Partners_With
 - Semantic Signatures:
   * Has_Metric: [ORG | SEGMENT] -> [FIN_METRIC]
-  * Produces: [ORG | SEGMENT] -> [PRODUCT]
-  * Operates_In: [ORG] -> [SEGMENT]
+  * Produces: [ORG | SEGMENT | COMP] -> [PRODUCT]
+  * Operates_In: [ORG | COMP] -> [SEGMENT]
   * Reports_Risk: [ORG | SEGMENT] -> [RISK_FACTOR]
-  * Led_By: [ORG | SEGMENT] -> [PERSON]<|im_end|>
+  * Led_By: [ORG | SEGMENT | COMP] -> [PERSON]
+  * Has_Stake_In: [ORG | COMP] -> [ORG | COMP]
+  * Impacts: [EVENT | RISK_FACTOR | REGULATORY_REQUIREMENT | ESG_TOPIC] -> [FIN_METRIC | ORG | SEGMENT]
+  * Involved_In: [ORG | PERSON | COMP] -> [EVENT]
+  * Impacted_By: [ORG | SEGMENT | FIN_METRIC] -> [EVENT | RISK_FACTOR]
+  * Discloses: [ORG] -> [ESG_TOPIC | FIN_METRIC | RISK_FACTOR]
+  * Complies_With: [ORG | COMP] -> [REGULATORY_REQUIREMENT]
+  * Supplies: [COMP] -> [ORG | COMP]
+  * Partners_With: [ORG | COMP] -> [ORG | COMP]<|im_end|>
 <|im_start|>user
 Document Context: {context}
 Filing Company: {company_name}
@@ -159,8 +194,8 @@ Extracted Triples:
 
 Audit each triple against the filing text and ontology schema. Check for these specific failure modes:
 
-1. **Non-Canonical Entity Type**: head_type or tail_type is NOT strictly one of the 7 allowed types (e.g. using "Company", "Metric", "Description", "Program", "Service", "Division", "KPI"). Must be converted to canonical schema type.
-2. **Invalid Relation Type or Semantic Signature Mismatch**: The relation is not one of the 5 allowed relations, or violates argument types (e.g. Has_Metric pointing to something other than FIN_METRIC, Reports_Risk pointing to an accounting narrative or non-RISK_FACTOR).
+1. **Non-Canonical Entity Type**: head_type or tail_type is NOT strictly one of the allowed schema types (e.g. using "Company", "Metric", "Description", "Program", "Service", "Division", "KPI"). Must be converted to canonical schema type.
+2. **Invalid Relation Type or Semantic Signature Mismatch**: The relation is not one of the allowed relations, or violates argument types (e.g. Has_Metric pointing to something other than FIN_METRIC, Reports_Risk pointing to an accounting narrative or non-RISK_FACTOR).
 3. **Oversized Entity (Sentence as Node)**: head or tail is a full sentence, clause, narrative, or exceeds 5 words. Quote the exact concise 1-4 word core noun phrase to replace it.
 4. **Non-Verbatim / Hallucinated Span**: The tail (or head) does not appear verbatim in the source text or context prefix.
 5. **Standalone Number or Date**: Tail is a raw number, dollar amount, percentage, or date (e.g. "$5.2B", "15%").
@@ -181,15 +216,15 @@ You are the Final Knowledge Graph Refiner for the FinReflectKG pipeline. Your mi
 
 HARD REFINEMENT DIRECTIVES:
 1. STRICT TYPE CANONICALIZATION:
-   - Convert all non-schema types to the 7 canonical types:
+   - Convert all non-schema types to the canonical types:
      * "Company", "Corporation", "Firm" -> "ORG"
      * "Metric", "KPI", "Financial Metric", "Description" -> "FIN_METRIC"
      * "Program", "Service", "System", "Offering" -> "PRODUCT"
      * "Division", "Unit" -> "SEGMENT"
      * "Risk", "Threat", "Issue" -> "RISK_FACTOR"
-   - Discard any triple whose types cannot be mapped to the 7 canonical types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
+   - Discard any triple whose types cannot be mapped to the canonical types: ORG, PERSON, COMP, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT, REGULATORY_REQUIREMENT, ESG_TOPIC.
 2. ENFORCE VALID RELATIONS:
-   - Every relation MUST be strictly one of: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
+   - Every relation MUST be strictly one of: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By, Has_Stake_In, Impacts, Involved_In, Impacted_By, Discloses, Complies_With, Supplies, Partners_With.
    - Discard any triple with an unapproved relation.
 3. SHORTEN OVERSIZED ENTITIES:
    - Replace any full sentence, clause, or multi-word narrative with its concise core noun phrase (1 to 5 words) appearing verbatim in the text.
