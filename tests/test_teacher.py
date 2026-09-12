@@ -194,3 +194,50 @@ def test_generate_teacher_triplets_prompt_clamping(tmp_path):
         # Verify text was clamped to 50 chars in Agent 3 refiner prompt
         assert "A" * 51 not in ref_prompt
         assert "A" * 50 in ref_prompt
+
+
+def test_generate_teacher_triplets_micro_batch_streaming(tmp_path):
+    """Verifies that batch_size streams batches, saves partial files, and resumes from batch files."""
+    mock_llm_instance = MagicMock()
+
+    class MockOutput:
+        def __init__(self, text):
+            self.outputs = [MagicMock(text=text)]
+
+    mock_llm_instance.generate.return_value = [
+        MockOutput('[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]'),
+        MockOutput('[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPad", "tail_type": "PRODUCT"}]'),
+    ]
+
+    mock_llm_cls = MagicMock(return_value=mock_llm_instance)
+    mock_sampling_params = MagicMock()
+
+    with patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls), \
+         patch("bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams", mock_sampling_params):
+        df_input = pd.DataFrame([
+            {"doc_id": "AAPL_2024.pdf", "ticker": "AAPL", "year": "2024", "section": "Item 1", "chunk_id": f"c_{i}", "text": f"Text {i}"}
+            for i in range(4)
+        ])
+
+        teacher_params = {
+            "batch_size": 2,
+            "checkpoint_dir": str(tmp_path),
+            "resume_checkpoints": True,
+        }
+
+        # First run: 4 chunks / batch_size 2 = 2 batches
+        result_df = generate_teacher_triplets(df_input, teacher_params=teacher_params)
+        assert len(result_df) == 4
+
+        batches_dir = tmp_path / "teacher_batches"
+        assert (batches_dir / "batch_0000.parquet").exists()
+        assert (batches_dir / "batch_0001.parquet").exists()
+        assert (tmp_path / "teacher_extracted_triplets_partial.csv").exists()
+
+        # Reset call count
+        mock_llm_instance.generate.reset_mock()
+
+        # Second run: should resume entirely from batch files, calling generate 0 times!
+        resumed_df = generate_teacher_triplets(df_input, teacher_params=teacher_params)
+        assert len(resumed_df) == 4
+        assert mock_llm_instance.generate.call_count == 0
