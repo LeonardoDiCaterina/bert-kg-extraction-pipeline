@@ -134,8 +134,15 @@ def train_model(
 
     epochs = training_params.get("epochs", 10)
 
+    from collections import defaultdict
+    import pandas as pd
+    import os
+    
+    history = []
+
     for epoch in range(epochs):
         total_loss = 0.0
+        epoch_losses = defaultdict(float)
         optimizer.zero_grad()
         for step, batch in enumerate(dataloader):
             batch = [b.to(device) for b in batch]
@@ -173,10 +180,13 @@ def train_model(
                 optimizer.zero_grad()
 
             total_loss += loss.item()
+            for k, v in loss_dict.items():
+                epoch_losses[k] += v.item()
 
             if step % 100 == 0:
+                components_str = ", ".join([f"{k}: {v.item():.4f}" for k, v in loss_dict.items()])
                 print(
-                    f"Epoch {epoch + 1}/{epochs} | Batch {step}/{len(dataloader)} | Loss: {loss.item():.4f}"
+                    f"Epoch {epoch + 1}/{epochs} | Batch {step}/{len(dataloader)} | Total: {loss.item():.4f} | {components_str}"
                 )
 
             if str(device) == "mps":
@@ -185,9 +195,24 @@ def train_model(
             if step % 50 == 0:
                 gc.collect()
 
-        print(
-            f"Epoch {epoch + 1}/{epochs} - Avg Loss: {(total_loss / len(dataloader)):.4f}"
-        )
+        avg_total = total_loss / len(dataloader)
+        avg_losses = {k: v / len(dataloader) for k, v in epoch_losses.items()}
+        
+        print(f"Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f}")
+        avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
+        print(f"  --> Components: {avg_components}")
+        
+        # Track history
+        history_record = {"epoch": epoch + 1, "total_loss": avg_total}
+        history_record.update(avg_losses)
+        history.append(history_record)
+
+    # Save tracking history to CSV
+    os.makedirs("data/08_reporting", exist_ok=True)
+    safe_model_name = encoder_model_name.replace("/", "_")
+    history_df = pd.DataFrame(history)
+    history_df.to_csv(f"data/08_reporting/loss_history_{safe_model_name}.csv", index=False)
+    print(f"Saved loss history to data/08_reporting/loss_history_{safe_model_name}.csv")
 
     # Return underlying uncompiled model if wrapped (for clean serialization)
     return getattr(model, "_orig_mod", model)
