@@ -49,21 +49,6 @@ teacher:
   max_samples: null              # Distill gold triples from 5000 representative chunks (set null for full dataset)
   checkpoint_dir: "data/02_intermediate"  # Auto-save/resume Agent 1, 2, 3 checkpoints
   resume_checkpoints: true       # Resume completed stages without recomputation
-  company_map:
-    AAPL: "Apple Inc."
-    MSFT: "Microsoft Corp."
-    AMZN: "Amazon.com, Inc."
-    NVDA: "NVIDIA Corporation"
-    GOOGL: "Alphabet Inc."
-    META: "Meta Platforms, Inc."
-    TSLA: "Tesla, Inc."
-    JPM: "JPMorgan Chase & Co."
-    CSCO: "Cisco Systems, Inc."
-    INTC: "Intel Corporation"
-    ORCL: "Oracle Corporation"
-    CRM: "Salesforce, Inc."
-    AMD: "Advanced Micro Devices, Inc."
-    QCOM: "QUALCOMM Incorporated"
 
 # ─── Student Model Training ───────────────────────────────────────────────────
 training:
