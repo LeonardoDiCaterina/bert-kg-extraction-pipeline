@@ -172,7 +172,7 @@ class SetCriterion(nn.Module):
             src_logits.transpose(1, 2), target_classes, weight=self.empty_weight
         )
 
-        losses = {"loss_ce": loss_ce}
+        losses = {"loss_ce": loss_ce * self.weight_dict["loss_ce"]}
 
         if len(tgt_idx[0]) == 0:
             # If no ground truth triples exist, we only compute the loss_ce (to predict no_relation)
@@ -193,7 +193,7 @@ class SetCriterion(nn.Module):
             F.cross_entropy(src_subj_type, target_subj_type)
             + F.cross_entropy(src_obj_type, target_obj_type)
         ) / 2
-        losses["loss_type"] = loss_type
+        losses["loss_type"] = loss_type * self.weight_dict["loss_type"]
 
         # 3. Span (Pointer Network) Loss (only applied to matched queries)
         src_subj_start = outputs["subj_start_logits"][idx]
@@ -214,6 +214,6 @@ class SetCriterion(nn.Module):
             + F.cross_entropy(src_obj_start, target_obj_spans[:, 0])
             + F.cross_entropy(src_obj_end, target_obj_spans[:, 1])
         ) / 4
-        losses["loss_span"] = loss_span
+        losses["loss_span"] = loss_span * self.weight_dict["loss_span"]
 
         return losses

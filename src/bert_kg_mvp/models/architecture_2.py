@@ -75,6 +75,7 @@ class DynamicKGExtractor(nn.Module):
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
 
         # Prediction Heads
+        self.dropout = nn.Dropout(0.3)
         self.rel_class_head = nn.Linear(d_model, num_relations + 1)
         self.subj_type_head = nn.Linear(d_model, num_ent_types)
         self.obj_type_head = nn.Linear(d_model, num_ent_types)
@@ -99,6 +100,9 @@ class DynamicKGExtractor(nn.Module):
 
         # No causal mask needed for set prediction (bidirectional cross-attention)
         decoder_output = self.decoder(query_embeds, memory)
+
+        # Apply dropout to combat dataset memorization
+        decoder_output = self.dropout(decoder_output)
 
         # Classification logits
         rel_logits = self.rel_class_head(decoder_output)
