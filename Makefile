@@ -92,7 +92,7 @@ smoke-benchmark:
 
 run-teacher:
 	@echo "==> Launching Teacher Distillation in background on GPU=$(GPU) with nohup..."
-	@nohup $(GPU_ENV) $(KEDRO) run --nodes generate_teacher_triplets_node > teacher_distill.log 2>&1 & \
+	@$(GPU_ENV) nohup $(KEDRO) run --nodes generate_teacher_triplets_node > teacher_distill.log 2>&1 & \
 		echo "Teacher distillation started in background! PID: $$!"
 	@echo "Monitor live logs with: tail -f teacher_distill.log"
 
