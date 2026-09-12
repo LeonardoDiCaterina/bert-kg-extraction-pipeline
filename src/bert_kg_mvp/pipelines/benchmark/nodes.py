@@ -310,6 +310,18 @@ def run_encoder_benchmark(
             train_tensors["obj_spans"],
         )
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        
+        import math
+        total_steps = math.ceil(len(train_loader) / accum_steps)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=[encoder_lr, learning_rate],
+            epochs=epochs,
+            steps_per_epoch=total_steps,
+            pct_start=0.1,  # 10% warmup
+            div_factor=10.0,
+            final_div_factor=1e4
+        )
 
         # 3. Train
         if freeze_strategy == "all":
@@ -389,6 +401,7 @@ def run_encoder_benchmark(
 
                 if (step + 1) % accum_steps == 0 or (step + 1) == len(train_loader):
                     optimizer.step()
+                    scheduler.step()
                     optimizer.zero_grad()
                     
                 total_loss += loss.item()
