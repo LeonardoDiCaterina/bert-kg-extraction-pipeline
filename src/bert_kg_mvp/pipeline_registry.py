@@ -1,6 +1,6 @@
 from typing import Dict
 from kedro.pipeline import Pipeline
-from bert_kg_mvp.pipelines import benchmark, data_prep, inference, training
+from bert_kg_mvp.pipelines import benchmark, data_prep, inference, training, evalbench, hallubench
 
 
 def register_pipelines() -> Dict[str, Pipeline]:
@@ -8,6 +8,8 @@ def register_pipelines() -> Dict[str, Pipeline]:
     inference_pipeline = inference.create_pipeline()
     training_pipeline = training.create_pipeline()
     benchmark_pipeline = benchmark.create_pipeline()
+    evalbench_pipeline = evalbench.create_pipeline()
+    hallubench_pipeline = hallubench.create_pipeline()
 
     return {
         "__default__": data_prep_pipeline + training_pipeline + inference_pipeline,
@@ -15,4 +17,6 @@ def register_pipelines() -> Dict[str, Pipeline]:
         "training": training_pipeline,
         "inference": inference_pipeline,
         "benchmark": benchmark_pipeline,
+        "evalbench": evalbench_pipeline,
+        "hallubench": hallubench_pipeline,
     }

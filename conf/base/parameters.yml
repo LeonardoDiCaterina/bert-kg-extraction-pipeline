@@ -116,4 +116,15 @@ benchmark:
   compile_model: true              # Accelerate benchmark models with torch.compile
   compile_mode: "default"
 
+# ─── EvalBench Pipeline ─────────────────────────────────────────────────────────
+evalbench:
+  sample_size: 100               # Number of predicted triples to randomly sample
+  judge_models:                  # You can parameterize how many models to summon here!
+    - "Qwen/Qwen2.5-72B-Instruct"
+    # - "gpt-oss-120b"
+    # - "llama-3-nemotron"
+
+# ─── HalluBench Pipeline ────────────────────────────────────────────────────────
+hallubench:
+  sample_size: 50                # Number of predictions to feed into the simulated QA detector
 
