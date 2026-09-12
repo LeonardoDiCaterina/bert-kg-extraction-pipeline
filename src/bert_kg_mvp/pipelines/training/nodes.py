@@ -16,6 +16,9 @@ def train_model(
     Trains the DynamicKGExtractor model using DETR-style bipartite matching loss.
     Supports either namespaced params (`params:training` + `params:schema`) or a legacy single dict.
     """
+    matmul_precision = training_params.get("float32_matmul_precision", "high")
+    if matmul_precision and hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision(matmul_precision)
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
