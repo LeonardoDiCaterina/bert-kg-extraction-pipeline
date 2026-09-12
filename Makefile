@@ -82,7 +82,7 @@ smoke-teacher:
 
 smoke-train:
 	@echo "==> Running Student Training Smoke Test (1 epoch, batch size 2)..."
-	$(GPU_ENV) $(KEDRO) run --nodes train_model_node --params training.epochs=1,training.batch_size=2,training.compile_model=false
+	$(GPU_ENV) $(KEDRO) run --pipeline training --params training.epochs=1,training.batch_size=2,training.compile_model=false
 
 smoke-benchmark:
 	@echo "==> Running Benchmark Smoke Test (1 epoch, bert-base-uncased)..."

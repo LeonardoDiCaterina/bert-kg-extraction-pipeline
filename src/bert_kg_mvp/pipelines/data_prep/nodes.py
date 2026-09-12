@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 from pathlib import Path
@@ -151,20 +152,54 @@ def prepare_training_data(
     gt_subj_spans_list, gt_obj_spans_list = [], []
     metadata_list: list = []
 
-    for _, row in teacher_data.iterrows():
-        try:
-            triplets = (
-                json.loads(row["triples"].replace("'", '"'))
-                if isinstance(row["triples"], str)
-                else row["triples"]
-            )
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            continue
+    # Canonical mapping for LLM entity type synonyms to formal ontology
+    TYPE_SYNONYMS = {
+        "company": "org",
+        "corporation": "org",
+        "firm": "org",
+        "enterprise": "org",
+        "metric": "fin_metric",
+        "financial_metric": "fin_metric",
+        "kpi": "fin_metric",
+        "risk": "risk_factor",
+        "program": "product",
+        "service": "product",
+        "division": "segment",
+        "unit": "segment",
+        "business_segment": "segment",
+    }
 
-        if not triplets:
+    for _, row in teacher_data.iterrows():
+        triplets = None
+        raw_val = row.get("triples")
+        if isinstance(raw_val, list):
+            triplets = raw_val
+        elif isinstance(raw_val, str):
+            raw_s = raw_val.strip()
+            # Repair missing commas between dictionary objects: } { -> }, {
+            raw_s = re.sub(r"\}\s*\{", "}, {", raw_s)
+            try:
+                triplets = ast.literal_eval(raw_s)
+            except Exception:
+                try:
+                    triplets = json.loads(raw_s)
+                except Exception:
+                    try:
+                        # Defensive quote normalization preserving internal apostrophes
+                        fixed = re.sub(
+                            r"(?<=[\{\s,])'([a-zA-Z0-9_]+)':", r'"\1":', raw_s
+                        )
+                        triplets = json.loads(fixed)
+                    except Exception:
+                        triplets = []
+
+        if not triplets or not isinstance(triplets, list):
             continue
 
         text = row["text"]
+        ticker = str(row.get("ticker", "")).strip()
+        year = str(row.get("year", "")).strip()
+        section = str(row.get("section", "")).strip()
 
         # ── Context prefix ──────────────────────────────────────────────────────
         # Build a natural-language prefix from the chunk's provenance metadata
@@ -172,9 +207,6 @@ def prepare_training_data(
         # without requiring architectural changes.
         # Format: "[AAPL | 2024 | Item 7 – MD&A] <original text>"
         if use_context_prefix:
-            ticker = str(row.get("ticker", "")).strip()
-            year = str(row.get("year", "")).strip()
-            section = str(row.get("section", "")).strip()
             prefix_parts = [p for p in [ticker, year, section] if p]
             if prefix_parts:
                 text = f"[{' | '.join(prefix_parts)}] {text}"
@@ -191,22 +223,31 @@ def prepare_training_data(
 
         valid_triples = []
         for t in triplets:
+            if not isinstance(t, dict):
+                continue
+
             sub = t.get("head", "").strip().lower()
-            if sub == "exact company name":
-                sub = (
-                    "apple inc."
-                    if "AAPL" in row.get("doc_id", "")
-                    else (
-                        "microsoft corp."
-                        if "MSFT" in row.get("doc_id", "")
-                        else "company"
-                    )
-                )
+            if sub in [
+                "exact company name",
+                "the corporation",
+                "the company",
+                "company",
+                "we",
+                "our",
+            ]:
+                if ticker:
+                    sub = ticker.lower()
+                elif "doc_id" in row:
+                    sub = str(row["doc_id"]).lower()
 
             sub_type = t.get("head_type", "").strip().lower()
             rel = t.get("relation", "").strip().lower()
             obj = t.get("tail", "").strip().lower()
             obj_type = t.get("tail_type", "").strip().lower()
+
+            # Normalize common synonyms to canonical schema types
+            sub_type = TYPE_SYNONYMS.get(sub_type, sub_type)
+            obj_type = TYPE_SYNONYMS.get(obj_type, obj_type)
 
             if (
                 sub_type not in ent_to_id
@@ -216,7 +257,19 @@ def prepare_training_data(
                 continue
 
             subj_start, subj_end = align_entities_to_tokens(text, sub, tokenizer, ids)
+            # If subject not found directly, check if ticker is in context prefix
+            if subj_start == -1 and ticker:
+                subj_start, subj_end = align_entities_to_tokens(
+                    text, ticker.lower(), tokenizer, ids
+                )
+
             obj_start, obj_end = align_entities_to_tokens(text, obj, tokenizer, ids)
+            # If tail entity is a long phrase, align to the core noun phrase (first 4 words)
+            if obj_start == -1 and len(obj.split()) > 4:
+                core_obj = " ".join(obj.split()[:4])
+                obj_start, obj_end = align_entities_to_tokens(
+                    text, core_obj, tokenizer, ids
+                )
 
             if subj_start != -1 and obj_start != -1:
                 valid_triples.append(

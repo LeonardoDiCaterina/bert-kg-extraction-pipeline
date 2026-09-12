@@ -53,10 +53,14 @@ def resolve_company_name(
             "JPM": "JPMorgan Chase & Co.",
         }
 
-    doc_upper = doc_id.upper()
+    doc_upper = doc_id.upper().strip()
     for ticker, full_name in company_map.items():
         if ticker in doc_upper:
             return full_name
+
+    # If doc_id itself is a bare ticker symbol (e.g. "CSCO", "PSKY", "MDT")
+    if doc_upper.isalpha() and len(doc_upper) <= 5:
+        return doc_upper
 
     return default_name
 

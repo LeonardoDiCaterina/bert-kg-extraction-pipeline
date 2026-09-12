@@ -12,7 +12,25 @@ def is_informative_chunk(text: str, min_words: int = 50) -> bool:
     # Drop checkbox-heavy administrative blocks
     if "indicate by check mark" in text.lower():
         return False
+
     return True
+
+
+def is_table_skeleton(text: str) -> bool:
+    """
+    Detects uninformative markdown table skeletons (e.g. empty column headers
+    or grid dividers without substantive financial text).
+    """
+    t = str(text).strip()
+    if not t.startswith("[TABLE START]"):
+        return False
+    # Count words with 2 or more letters that are not table pipes
+    alpha_words = [
+        w
+        for w in t.split()
+        if re.search(r"[a-zA-Z]{2,}", w) and not re.match(r"^\|+$", w)
+    ]
+    return len(alpha_words) < 15
 
 
 def extract_rebel_triplets(text: str) -> List[Dict[str, str]]:
@@ -88,8 +106,8 @@ def parse_triplet_string(text: str) -> Set[Tuple[str, str, str]]:
 
 def clean_json_string(raw_text: str) -> str:
     """
-    Strips markdown code fences (e.g. ```json ... ```) and leading/trailing whitespace
-    to prepare an LLM response for json.loads.
+    Strips markdown code fences, inserts missing commas between JSON objects,
+    and formats an LLM response for robust json.loads or ast.literal_eval.
     """
     cleaned = raw_text.strip()
     if cleaned.startswith("```json"):
@@ -100,4 +118,9 @@ def clean_json_string(raw_text: str) -> str:
     if cleaned.endswith("```"):
         cleaned = cleaned[:-3]
 
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+
+    # Repair missing commas between dictionary objects: } { -> }, {
+    cleaned = re.sub(r"\}\s*\{", "}, {", cleaned)
+
+    return cleaned

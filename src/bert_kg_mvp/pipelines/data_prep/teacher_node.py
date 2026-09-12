@@ -28,13 +28,15 @@ Any pronoun or generic reference to "the Company," "we," "our," or similar in th
 
 Extract ALL valid relations from the text below using ONLY the entity types and relationship types defined in the schema. Do not invent new entity or relationship types under any circumstances.
 
-Guidelines:
-- Resolve "the Company," "we," "our," etc. directly to "{company_name}" in the head/tail fields — never leave a pronoun or generic company reference as an entity name.
-- "head" and "tail" must be exact entity names (use "{company_name}" for the primary entity; use full names as given in the text for all other entities).
-- Every triple's "relation" must be one of the defined relationship types, and must connect entity types that make logical sense together.
-- Do NOT extract standalone numbers, dates, or dollar amounts as entities. If a number is relevant, it should be captured as an attribute/descriptor of a FIN_METRIC or EVENT entity (e.g. tail = "Net Revenue" not "$12.4 billion").
-- Do NOT extract generic or vague nouns (e.g. "the segment," "this metric," "the risk") as head or tail entities — resolve them to their specific named entity if possible, or omit the triple.
-- If the same fact appears multiple times with different phrasing, extract it once.
+CRITICAL GUIDELINES:
+- "head" and "tail" MUST be concise entity names or core noun phrases (strictly 1 to 6 words, e.g. "Net Income", "Employee Stock Purchase Rights", "iPhone 15", "Tim Cook"). NEVER extract an entire sentence, explanatory clause, percentage narrative, or paragraph as an entity.
+- "head_type" and "tail_type" MUST be strictly chosen from: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
+  * Use ORG for all corporations, subsidiaries, and companies (NEVER use "Company" or "Corporation").
+  * Use FIN_METRIC for all financial metrics, liabilities, rates, and accounting figures (NEVER use "Metric" or "Description").
+  * Use PRODUCT for all products, tools, and offerings (NEVER use "Program").
+  * Use SEGMENT for all business reporting units and divisions.
+- Every triple's "relation" must be strictly one of: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
+- Resolve "the Company," "we," "our," etc. directly to "{company_name}" in the head field — never leave a pronoun or generic company reference as an entity name.
 - If no valid relations exist in the text, output an empty JSON list: [].
 - Output strictly a JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". No prose, no markdown code fences, no explanation — JSON only.
 
@@ -56,15 +58,14 @@ The primary entity for this document is {company_name} (Document Context: {conte
 
 Review the extracted triples against the source text, filing context, and schema. For each triple, check the following failure modes and flag every violation found, quoting the offending triple exactly:
 
-1. **Invalid head/tail entity**: The head or tail is NOT a recognized Company, Person, Product, Segment, Financial Metric, Risk Factor, or Event as named in the text.
-2. **Raw value as node**: A raw number, percentage, date, or dollar amount is extracted as a standalone entity node rather than as part of a properly named FIN_METRIC or EVENT.
+1. **Invalid or Non-Conforming Type**: The head_type or tail_type is NOT strictly one of ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT (e.g. using "Company", "Metric", "Description", or "Program"). Must be corrected to the canonical schema type.
+2. **Oversized Entity (Sentence as Node)**: The head or tail is a full sentence, clause, or narrative (>6 words) rather than a concise entity name. Quote the concise core noun phrase to replace it.
 3. **Disconnected from primary entity**: The relationship does not explicitly and traceably link back to {company_name}.
 4. **Unresolved pronoun**: The head or tail is "the Company," "we," "our," "it," or similar rather than "{company_name}".
 5. **Contextual Hallucination**: The triple introduces entities, years, or corporate relationships that contradict the document context {context}.
-6. **Type mismatch**: The head_type or tail_type does not match the entity as used.
-7. **Unsupported claim**: The triple asserts something not actually stated in the text.
-8. **Duplicate**: Redundant representation of the same fact.
-9. **Missed extraction**: A clearly valid, schema-conformant relation is present in the text but missing from the extracted triples.
+6. **Unsupported claim**: The triple asserts something not actually stated in the text.
+7. **Duplicate**: Redundant representation of the same fact.
+8. **Missed extraction**: A clearly valid, schema-conformant relation is present in the text but missing from the extracted triples.
 
 For each issue found, state: (a) the exact triple in question, (b) which failure mode it violates, and (c) a concrete suggested fix.
 
@@ -83,8 +84,9 @@ You are a Knowledge Graph refinement agent responsible for producing the final, 
 <|im_start|>user
 The primary entity for this document is {company_name} (Document Context: {context}). Using the critic's feedback, correct the initial triples according to these rules:
 
+- Normalize all entity types strictly to: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT (e.g. change "Company" -> "ORG", "Metric" -> "FIN_METRIC", "Program" -> "PRODUCT").
+- Shorten any oversized head or tail entities into concise noun phrases (1 to 6 words).
 - Remove any triple flagged as invalid, hallucinated, duplicate, or containing a raw number/date/dollar amount as a standalone entity.
-- Correct any type mismatches identified by the critic.
 - Replace all pronouns and vague references with "{company_name}".
 - Add any missed valid relations the critic identified.
 - Preserve all triples the critic did not flag, unchanged.
@@ -217,6 +219,21 @@ def generate_teacher_triplets(
     schema_text = format_schema_prompt(schema_params)
     max_chunk_chars = params.get("max_chunk_chars", 8000)
 
+    # 0. Ensure provenance metadata (ticker, year, section) is populated
+    from bert_kg_mvp.pipelines.data_prep.nodes import _ensure_provenance_metadata
+    from bert_kg_mvp.utils import is_table_skeleton
+
+    parsed_chunks = _ensure_provenance_metadata(parsed_chunks, params)
+
+    # Filter out empty tables and pure markdown skeletons
+    skeleton_mask = parsed_chunks["text"].astype(str).apply(is_table_skeleton)
+    if skeleton_mask.any():
+        dropped_count = int(skeleton_mask.sum())
+        print(
+            f"[Teacher Pipeline] Filtered out {dropped_count} uninformative table skeleton chunks before distillation."
+        )
+        parsed_chunks = parsed_chunks[~skeleton_mask].reset_index(drop=True)
+
     # Subsampling configuration
     max_samples = params.get("max_samples", None)
     if max_samples is not None and 0 < int(max_samples) < len(parsed_chunks):
@@ -327,10 +344,13 @@ def generate_teacher_triplets(
                 )
 
         # Compute context and texts for current batch
-        sub_companies = [
-            resolve_company_name(row["doc_id"], company_map=company_map)
-            for _, row in sub_chunks.iterrows()
-        ]
+        sub_companies = []
+        for _, row in sub_chunks.iterrows():
+            c_name = resolve_company_name(str(row["doc_id"]), company_map=company_map)
+            if (c_name == "The Corporation" or not c_name) and row.get("ticker"):
+                c_name = str(row["ticker"])
+            sub_companies.append(c_name)
+
         sub_contexts = [
             _format_chunk_context(row, sub_companies[i])
             for i, (_, row) in enumerate(sub_chunks.iterrows())
@@ -420,9 +440,18 @@ def generate_teacher_triplets(
         batch_extracted_data = []
         for i, raw_output in enumerate(ref_outputs):
             clean_json = clean_json_string(raw_output)
+            triples = []
             try:
                 triples = json.loads(clean_json)
-            except json.JSONDecodeError:
+            except Exception:
+                try:
+                    import ast
+
+                    triples = ast.literal_eval(clean_json)
+                except Exception:
+                    triples = []
+
+            if not isinstance(triples, list):
                 triples = []
 
             batch_extracted_data.append(
