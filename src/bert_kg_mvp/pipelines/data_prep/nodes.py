@@ -272,6 +272,23 @@ def prepare_training_data(
 
     print(f"Gathered {len(input_ids_list)} valid financial samples.")
 
+    if not input_ids_list:
+        print(
+            "Warning: No valid financial samples found in input dataset. "
+            "Returning empty tensor dataset."
+        )
+        tensors = {
+            "input_ids": torch.empty((0, max_seq_length), dtype=torch.long),
+            "attention_mask": torch.empty((0, max_seq_length), dtype=torch.long),
+            "relations": torch.empty((0, max_gt_triples), dtype=torch.long),
+            "subj_types": torch.empty((0, max_gt_triples), dtype=torch.long),
+            "obj_types": torch.empty((0, max_gt_triples), dtype=torch.long),
+            "subj_spans": torch.empty((0, max_gt_triples, 2), dtype=torch.long),
+            "obj_spans": torch.empty((0, max_gt_triples, 2), dtype=torch.long),
+            "metadata": [],
+        }
+        return tensors, tokenizer
+
     tensors = {
         "input_ids": torch.stack(input_ids_list),
         "attention_mask": torch.stack(attention_masks_list),

@@ -78,11 +78,11 @@ check-all:
 
 smoke-teacher:
 	@echo "==> Running Teacher Extraction Smoke Test on GPU=$(GPU)..."
-	$(GPU_ENV) $(KEDRO) run --from-nodes generate_teacher_triplets_node --params teacher.max_samples=5,teacher.batch_size=5
+	$(GPU_ENV) $(KEDRO) run --nodes generate_teacher_triplets_node --params teacher.max_samples=5,teacher.batch_size=5
 
 smoke-train:
 	@echo "==> Running Student Training Smoke Test (1 epoch, batch size 2)..."
-	$(GPU_ENV) $(KEDRO) run --from-nodes train_model_node --params training.epochs=1,training.batch_size=2,training.compile_model=false
+	$(GPU_ENV) $(KEDRO) run --nodes train_model_node --params training.epochs=1,training.batch_size=2,training.compile_model=false
 
 smoke-benchmark:
 	@echo "==> Running Benchmark Smoke Test (1 epoch, bert-base-uncased)..."
@@ -92,7 +92,7 @@ smoke-benchmark:
 
 run-teacher:
 	@echo "==> Launching Teacher Distillation in background on GPU=$(GPU) with nohup..."
-	@nohup $(GPU_ENV) $(KEDRO) run --from-nodes generate_teacher_triplets_node > teacher_distill.log 2>&1 & \
+	@nohup $(GPU_ENV) $(KEDRO) run --nodes generate_teacher_triplets_node > teacher_distill.log 2>&1 & \
 		echo "Teacher distillation started in background! PID: $$!"
 	@echo "Monitor live logs with: tail -f teacher_distill.log"
 
