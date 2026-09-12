@@ -211,6 +211,12 @@ def run_encoder_benchmark(
     )
 
     epochs = benchmark_params.get("epochs", 5)
+    loss_weights = benchmark_params.get(
+        "loss_weights", 
+        {"loss_ce": 1.0, "loss_type": 1.0, "loss_span": 1.0}
+    )
+    eos_coef = benchmark_params.get("eos_coef", 0.1)
+    dynamic_unfreeze_epoch = benchmark_params.get("dynamic_unfreeze_epoch", 20)
     learning_rate = benchmark_params.get("learning_rate", 5e-5)
     batch_size = benchmark_params.get("batch_size", 4)
     accum_steps = benchmark_params.get("gradient_accumulation_steps", 8)
@@ -283,8 +289,6 @@ def run_encoder_benchmark(
         encoder_params = []
         decoder_params = []
         for name, param in model.named_parameters():
-            if not param.requires_grad:
-                continue
             if "encoder" in name:
                 encoder_params.append(param)
             else:
@@ -297,7 +301,10 @@ def run_encoder_benchmark(
             ]
         )
         criterion = SetCriterion(
-            num_relation_classes=num_relations, num_entity_types=num_ent_types
+            num_relation_classes=num_relations, 
+            num_entity_types=num_ent_types,
+            eos_coef=eos_coef,
+            weight_dict=loss_weights,
         ).to(device)
 
         train_ds = TensorDataset(
@@ -373,6 +380,17 @@ def run_encoder_benchmark(
         
         for epoch in range(epochs):
             model.train()
+            
+            # Dynamic Unfreezing
+            if epoch < dynamic_unfreeze_epoch:
+                model.encoder.eval()
+                for p in model.encoder.parameters():
+                    p.requires_grad = False
+            else:
+                model.encoder.train()
+                for p in model.encoder.parameters():
+                    p.requires_grad = True
+                    
             optimizer.zero_grad()
             total_loss = 0.0
             epoch_losses = defaultdict(float)

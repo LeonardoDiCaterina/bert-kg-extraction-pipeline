@@ -10,18 +10,21 @@ class SetCriterion(nn.Module):
     Inspired by DETR (DEtection TRansformer).
     """
 
-    def __init__(self, num_relation_classes, num_entity_types, eos_coef=0.1):
+    def __init__(self, num_relation_classes, num_entity_types, eos_coef=0.1, weight_dict=None):
         super().__init__()
         self.num_relation_classes = num_relation_classes
         self.num_entity_types = num_entity_types
         self.eos_coef = eos_coef  # relative weight of the 'no_relation' (eos) class
 
         # Weights for the different parts of the loss
-        self.weight_dict = {
-            "loss_ce": 1.0,  # Relation classification
-            "loss_type": 1.0,  # Entity type classification
-            "loss_span": 1.0,  # Pointer network span extraction
-        }
+        if weight_dict is None:
+            self.weight_dict = {
+                "loss_ce": 1.0,  # Relation classification
+                "loss_type": 1.0,  # Entity type classification
+                "loss_span": 1.0,  # Pointer network span extraction
+            }
+        else:
+            self.weight_dict = weight_dict
 
         # Create an empty weight tensor for relation classes.
         # We down-weight the 'no_relation' class (index `num_relation_classes`) to handle class imbalance,
