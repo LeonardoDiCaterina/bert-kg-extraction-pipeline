@@ -57,8 +57,25 @@ def train_model(
         unfrozen_top_layers=unfrozen_top_layers,
     ).to(device)
 
+    learning_rate = training_params.get("learning_rate", 1e-4)
+    encoder_lr = training_params.get("encoder_learning_rate", 1e-5)
+
+    encoder_params = []
+    decoder_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+        if "encoder" in name:
+            encoder_params.append(param)
+        else:
+            decoder_params.append(param)
+
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=training_params.get("learning_rate", 5e-5)
+        [
+            {"params": encoder_params, "lr": encoder_lr},
+            {"params": decoder_params, "lr": learning_rate},
+        ]
     )
     criterion = SetCriterion(
         num_relation_classes=num_relations, num_entity_types=num_ent_types

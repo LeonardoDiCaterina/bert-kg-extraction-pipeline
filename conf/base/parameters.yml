@@ -105,7 +105,8 @@ benchmark:
     - name: "roberta-base"
       display_name: "RoBERTa Base"
   epochs: 50
-  learning_rate: 0.00005
+  learning_rate: 0.0001
+  encoder_learning_rate: 0.00001
   batch_size: 4
   gradient_accumulation_steps: 8
   freeze_strategy: "partial"       # options: "all", "partial", "none"
