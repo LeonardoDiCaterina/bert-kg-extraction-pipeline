@@ -104,7 +104,7 @@ benchmark:
       display_name: "SEC-BERT (AUEB)"
     - name: "roberta-base"
       display_name: "RoBERTa Base"
-  epochs: 50
+  epochs: 200
   learning_rate: 0.0001
   encoder_learning_rate: 0.00001
   batch_size: 4

@@ -178,6 +178,9 @@ def run_encoder_benchmark(
     Trains and benchmarks multiple encoder backbones on the company-stratified train/test splits.
     Reads list of models from `benchmark_params['models']`.
     """
+    matmul_precision = benchmark_params.get("float32_matmul_precision", "high")
+    if matmul_precision and hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision(matmul_precision)
     device = torch.device(
         "cuda"
         if torch.cuda.is_available()
@@ -269,7 +272,23 @@ def run_encoder_benchmark(
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+        encoder_lr = benchmark_params.get("encoder_learning_rate", 1e-5)
+        encoder_params = []
+        decoder_params = []
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if "encoder" in name:
+                encoder_params.append(param)
+            else:
+                decoder_params.append(param)
+                
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": encoder_params, "lr": encoder_lr},
+                {"params": decoder_params, "lr": learning_rate},
+            ]
+        )
         criterion = SetCriterion(
             num_relation_classes=num_relations, num_entity_types=num_ent_types
         ).to(device)
@@ -321,9 +340,17 @@ def run_encoder_benchmark(
                 )
 
         start_train_time = time.perf_counter()
+        from collections import defaultdict
+        import pandas as pd
+        import os
+        
+        history = []
         for epoch in range(epochs):
             model.train()
             optimizer.zero_grad()
+            total_loss = 0.0
+            epoch_losses = defaultdict(float)
+            
             for step, batch in enumerate(train_loader):
                 batch = [b.to(device) for b in batch]
                 b_ids, b_mask, b_rels, b_st, b_ot, b_ss, b_os = batch
@@ -349,6 +376,28 @@ def run_encoder_benchmark(
                 if (step + 1) % accum_steps == 0 or (step + 1) == len(train_loader):
                     optimizer.step()
                     optimizer.zero_grad()
+                    
+                total_loss += loss.item()
+                for k, v in loss_dict.items():
+                    epoch_losses[k] += v.item()
+
+            avg_total = total_loss / len(train_loader)
+            avg_losses = {k: v / len(train_loader) for k, v in epoch_losses.items()}
+            
+            # Print last epoch or every 50 epochs to not flood terminal
+            if (epoch + 1) % 50 == 0 or epoch == epochs - 1:
+                avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
+                print(f"  Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f} | {avg_components}")
+                
+            history_record = {"epoch": epoch + 1, "total_loss": avg_total}
+            history_record.update(avg_losses)
+            history.append(history_record)
+            
+        # Save tracking history to CSV
+        os.makedirs("data/08_reporting", exist_ok=True)
+        safe_model_name = model_name.replace("/", "_")
+        history_df = pd.DataFrame(history)
+        history_df.to_csv(f"data/08_reporting/loss_history_{safe_model_name}.csv", index=False)
 
         total_train_sec = time.perf_counter() - start_train_time
         sec_per_epoch = total_train_sec / max(1, epochs)
