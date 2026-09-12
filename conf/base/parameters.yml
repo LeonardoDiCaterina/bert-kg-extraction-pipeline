@@ -111,6 +111,16 @@ benchmark:
   gradient_accumulation_steps: 8
   val_interval_epochs: 5
   early_stopping_patience: 3
+  loss_weights:
+    loss_ce: 1.0
+    loss_type: 2.0
+    loss_span: 0.4
+  matcher_weights:
+    loss_ce: 2.0
+    loss_type: 1.0
+    loss_span: 0.25
+  eos_coef: 0.05
+  dynamic_unfreeze_epoch: 20
   freeze_strategy: "partial"       # options: "all", "partial", "none"
   unfrozen_top_layers: 4
   num_queries: 15

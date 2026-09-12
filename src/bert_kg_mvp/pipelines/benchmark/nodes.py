@@ -217,6 +217,10 @@ def run_encoder_benchmark(
     )
     eos_coef = benchmark_params.get("eos_coef", 0.1)
     dynamic_unfreeze_epoch = benchmark_params.get("dynamic_unfreeze_epoch", 20)
+    matcher_weights = benchmark_params.get(
+        "matcher_weights", 
+        {"loss_ce": 2.0, "loss_type": 1.0, "loss_span": 0.25}
+    )
     learning_rate = benchmark_params.get("learning_rate", 5e-5)
     batch_size = benchmark_params.get("batch_size", 4)
     accum_steps = benchmark_params.get("gradient_accumulation_steps", 8)
@@ -305,6 +309,7 @@ def run_encoder_benchmark(
             num_entity_types=num_ent_types,
             eos_coef=eos_coef,
             weight_dict=loss_weights,
+            matcher_weight_dict=matcher_weights,
         ).to(device)
 
         train_ds = TensorDataset(

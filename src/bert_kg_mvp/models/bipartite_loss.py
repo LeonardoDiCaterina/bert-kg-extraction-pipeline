@@ -10,7 +10,7 @@ class SetCriterion(nn.Module):
     Inspired by DETR (DEtection TRansformer).
     """
 
-    def __init__(self, num_relation_classes, num_entity_types, eos_coef=0.1, weight_dict=None):
+    def __init__(self, num_relation_classes, num_entity_types, eos_coef=0.1, weight_dict=None, matcher_weight_dict=None):
         super().__init__()
         self.num_relation_classes = num_relation_classes
         self.num_entity_types = num_entity_types
@@ -25,6 +25,15 @@ class SetCriterion(nn.Module):
             }
         else:
             self.weight_dict = weight_dict
+            
+        if matcher_weight_dict is None:
+            self.matcher_weight_dict = {
+                "loss_ce": 1.0,
+                "loss_type": 1.0,
+                "loss_span": 1.0,
+            }
+        else:
+            self.matcher_weight_dict = matcher_weight_dict
 
         # Create an empty weight tensor for relation classes.
         # We down-weight the 'no_relation' class (index `num_relation_classes`) to handle class imbalance,
@@ -60,6 +69,8 @@ class SetCriterion(nn.Module):
 
         # We flatten to compute the cost matrix across all batch elements
         out_prob = outputs["rel_logits"].flatten(0, 1).softmax(-1)
+        out_subj_type = outputs["subj_type_logits"].flatten(0, 1).softmax(-1)
+        out_obj_type = outputs["obj_type_logits"].flatten(0, 1).softmax(-1)
 
         # Output shapes: [bs * num_queries, num_classes] / [bs * num_queries, seq_len]
         out_subj_start = outputs["subj_start_logits"].flatten(0, 1).softmax(-1)
@@ -82,6 +93,14 @@ class SetCriterion(nn.Module):
             # Relation class cost: -prob(target_class)
             cost_class = -out_prob[b * num_queries : (b + 1) * num_queries, tgt_rels]
 
+            # Type cost: -prob(target_subj_type) - prob(target_obj_type)
+            tgt_subj_types = targets[b]["subj_types"]
+            tgt_obj_types = targets[b]["obj_types"]
+            cost_type = -(
+                out_subj_type[b * num_queries : (b + 1) * num_queries, tgt_subj_types]
+                + out_obj_type[b * num_queries : (b + 1) * num_queries, tgt_obj_types]
+            )
+
             # Span cost: -prob(target_start) - prob(target_end)
             tgt_subj_spans = targets[b]["subj_spans"]
             tgt_obj_spans = targets[b]["obj_spans"]
@@ -103,8 +122,9 @@ class SetCriterion(nn.Module):
 
             # Total cost matrix for this batch element
             C = (
-                self.weight_dict["loss_ce"] * cost_class
-                + self.weight_dict["loss_span"] * cost_span
+                self.matcher_weight_dict["loss_ce"] * cost_class
+                + self.matcher_weight_dict["loss_type"] * cost_type
+                + self.matcher_weight_dict["loss_span"] * cost_span
             )
             C = C.cpu().numpy()
 
