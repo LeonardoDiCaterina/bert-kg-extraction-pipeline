@@ -109,6 +109,8 @@ benchmark:
   encoder_learning_rate: 0.00001
   batch_size: 4
   gradient_accumulation_steps: 8
+  val_interval_epochs: 5
+  early_stopping_patience: 3
   freeze_strategy: "partial"       # options: "all", "partial", "none"
   unfrozen_top_layers: 4
   num_queries: 15

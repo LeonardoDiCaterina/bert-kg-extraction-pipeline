@@ -221,6 +221,7 @@ def run_encoder_benchmark(
     d_model = benchmark_params.get("d_model", 768)
 
     train_df = split_data["train"]
+    val_df = split_data["val"]
     test_df = split_data["test"]
 
     results: List[Dict[str, Any]] = []
@@ -243,6 +244,12 @@ def run_encoder_benchmark(
             encoder_prep_params = dict(data_prep_params)
             train_tensors, tokenizer = prepare_training_data(
                 train_df,
+                data_prep_params=encoder_prep_params,
+                training_params={"encoder_model_name": model_name},
+                schema_params=schema,
+            )
+            val_tensors, _ = prepare_training_data(
+                val_df,
                 data_prep_params=encoder_prep_params,
                 training_params={"encoder_model_name": model_name},
                 schema_params=schema,
@@ -343,8 +350,15 @@ def run_encoder_benchmark(
         from collections import defaultdict
         import pandas as pd
         import os
+        import copy
         
         history = []
+        best_val_f1 = -1.0
+        patience_counter = 0
+        best_model_state = None
+        val_interval_epochs = benchmark_params.get("val_interval_epochs", 5)
+        patience = benchmark_params.get("early_stopping_patience", 3)
+        
         for epoch in range(epochs):
             model.train()
             optimizer.zero_grad()
@@ -390,7 +404,37 @@ def run_encoder_benchmark(
                 
             history_record = {"epoch": epoch + 1, "total_loss": avg_total}
             history_record.update(avg_losses)
+            
+            if (epoch + 1) % val_interval_epochs == 0:
+                val_p, val_r, val_f1, _ = evaluate_model_on_test(
+                    model=model,
+                    test_dataset=val_tensors,
+                    tokenizer=tokenizer,
+                    no_relation_idx=no_relation_idx,
+                    device=device,
+                    batch_size=batch_size,
+                )
+                print(f"  >>> [Validation @ Epoch {epoch + 1}] F1: {val_f1:.4f} | Prec: {val_p:.4f} | Rec: {val_r:.4f}")
+                history_record["val_f1"] = val_f1
+                
+                if val_f1 > best_val_f1:
+                    best_val_f1 = val_f1
+                    patience_counter = 0
+                    best_model_state = copy.deepcopy(model.state_dict())
+                else:
+                    patience_counter += 1
+                    
+                model.train()
+                
             history.append(history_record)
+            
+            if patience_counter >= patience:
+                print(f"\n  [Early Stopping] No improvement for {patience} validation intervals. Stopping at Epoch {epoch + 1}.")
+                break
+            
+        if best_model_state is not None:
+            print(f"  [Restoring best weights] Reverting to model with Validation F1: {best_val_f1:.4f}")
+            model.load_state_dict(best_model_state)
             
         # Save tracking history to CSV
         os.makedirs("data/08_reporting", exist_ok=True)
