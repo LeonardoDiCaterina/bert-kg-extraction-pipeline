@@ -51,6 +51,12 @@ def resolve_company_name(
             "META": "Meta Platforms, Inc.",
             "TSLA": "Tesla, Inc.",
             "JPM": "JPMorgan Chase & Co.",
+            "CSCO": "Cisco Systems, Inc.",
+            "INTC": "Intel Corporation",
+            "ORCL": "Oracle Corporation",
+            "CRM": "Salesforce, Inc.",
+            "AMD": "Advanced Micro Devices, Inc.",
+            "QCOM": "QUALCOMM Incorporated",
         }
 
     doc_upper = doc_id.upper().strip()

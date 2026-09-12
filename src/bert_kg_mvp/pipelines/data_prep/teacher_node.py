@@ -16,90 +16,213 @@ except ImportError:
 DEFAULT_FIN_SCHEMA = """
 Entity Types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
 Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
+
+Semantic Signatures & Allowed Relations:
+- Has_Metric: [ORG or SEGMENT] -> [FIN_METRIC] (Named financial metric, ratio, or accounting line item; tail must be metric name, never a raw number, dollar amount, or full sentence)
+- Produces: [ORG or SEGMENT] -> [PRODUCT] (Commercial product, software platform, hardware, online service)
+- Operates_In: [ORG] -> [SEGMENT] (Reportable business segment, division, or geographic operating unit)
+- Reports_Risk: [ORG or SEGMENT] -> [RISK_FACTOR] (Explicit operational, competitive, macroeconomic, or market risk factor; concise noun phrase of 1 to 5 words)
+- Led_By: [ORG or SEGMENT] -> [PERSON] (Named executive officer, director, or board member)
 """
 
 EXTRACTOR_PROMPT = """<|im_start|>system
-You are an expert financial analyst specializing in SEC filings (10-K, 10-Q, 8-K) and knowledge graph extraction. You have deep familiarity with how public companies describe their business segments, products, executives, financial metrics, and risk disclosures. Your task is to convert unstructured filing text into precise, schema-conformant knowledge graph triples.<|im_end|>
+You are a principal financial knowledge engineer specializing in SEC Form 10-K filings and knowledge graph extraction. Your goal is to produce high-precision, schema-conformant training data to train a downstream neural student model equipped with extractive span pointer heads.
+
+================================================================================
+CRITICAL ONTOLOGY & TYPE CONSTRAINTS (ZERO DEVIATION PERMITTED)
+================================================================================
+Entity Types (STRICTLY LIMITED TO THESE 7 LABELS):
+1. ORG: Corporations, companies, subsidiaries, firms (FORBIDDEN: "Company", "Corporation", "Firm").
+2. PERSON: Named individuals, corporate officers, directors (e.g. "Tim Cook", "Chuck Robbins").
+3. PRODUCT: Commercial products, hardware lines, software platforms, commercial services (FORBIDDEN: "Program", "Offering").
+4. SEGMENT: Reportable business units, reporting segments, operating divisions (FORBIDDEN: "Division", "Unit").
+5. FIN_METRIC: Named financial metrics, ratios, accounting items, valuation measures (FORBIDDEN: "Metric", "KPI", "Financial Metric", "Description").
+6. RISK_FACTOR: Explicit operational, legal, macroeconomic, supply-chain, or cybersecurity risk factors (FORBIDDEN: "Risk", "Issue").
+7. EVENT: Distinct corporate milestone events, restructurings, or acquisitions.
+
+Relationship Types & Semantic Signatures (STRICTLY LIMITED TO THESE 5 LABELS):
+1. Has_Metric: (head: ORG | SEGMENT, tail: FIN_METRIC)
+   - Company or segment tracks, reports, or values a named financial metric.
+   - Tail MUST be the metric name (1-5 words), NEVER a dollar amount, percentage, date, or full sentence.
+2. Produces: (head: ORG | SEGMENT, tail: PRODUCT)
+   - Company or segment develops, manufactures, sells, or delivers a product/platform.
+3. Operates_In: (head: ORG, tail: SEGMENT)
+   - Company operates or reports revenue under a business segment or division.
+4. Reports_Risk: (head: ORG | SEGMENT, tail: RISK_FACTOR)
+   - Company or segment identifies an explicit risk factor. Tail MUST be a concise noun phrase (1-5 words), NEVER a sentence or narrative.
+5. Led_By: (head: ORG | SEGMENT, tail: PERSON)
+   - Company or business unit is led or managed by an executive or director.
+
+================================================================================
+GROUNDING & SPAN RULES FOR NEURAL STUDENT EXTRACTION
+================================================================================
+1. VERBATIM EXTRACTIVE SPANS:
+   - The student model aligns token spans directly to the source text. Every "tail" entity MUST appear VERBATIM in the text.
+   - Do NOT paraphrase, summarize, or normalize entity strings (e.g. if the text says "implied volatility", extract "implied volatility", not "Expected Implied Volatility Metric").
+2. CONCISE NOUN PHRASES (STRICTLY 1 TO 5 WORDS):
+   - Entities must be tight noun phrases (e.g. "employee stock purchase rights", "supply chain disruptions", "gross margin").
+   - NEVER extract full sentences, clauses, parentheticals, or paragraphs as entities!
+3. COMPANY GROUNDING & PRONOUN RESOLUTION:
+   - If the text uses first-person pronouns ("we", "our", "us") or generic phrases ("the Company", "the Corporation"), resolve the head entity to "{company_name}" or the ticker in Document Context {context}.
+   - NEVER output "The Corporation", "The Company", "we", or "our" as an entity name.
+4. NO STANDALONE NUMBERS, PERCENTAGES, OR DATES:
+   - Never extract "$1.5 billion", "12%", "2024", or "$500M" as an entity. The financial metric itself is the FIN_METRIC.
+5. NEGATIVE EXTRACTION:
+   - If the text does not explicitly state any of the 5 allowed relations, return an empty JSON list: []. Do not invent relations.
+6. OUTPUT FORMAT:
+   - Output strictly a JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". No markdown, no explanations.
+
+================================================================================
+FEW-SHOT EXTRACTION EXAMPLES
+================================================================================
+Example 1 (Financial Metrics & Valuation Assumptions):
+Text: "[CSCO | 2024 | Item 8] The valuation of employee stock purchase rights and the related assumptions are for the employee stock purchases made during the respective fiscal years. We used implied volatility for traded options on our stock as the expected volatility assumption in the Black-Scholes model."
+Output:
+[
+  {{"head": "CSCO", "head_type": "ORG", "relation": "Has_Metric", "tail": "employee stock purchase rights", "tail_type": "FIN_METRIC"}},
+  {{"head": "CSCO", "head_type": "ORG", "relation": "Has_Metric", "tail": "implied volatility", "tail_type": "FIN_METRIC"}},
+  {{"head": "CSCO", "head_type": "ORG", "relation": "Has_Metric", "tail": "Black-Scholes model", "tail_type": "FIN_METRIC"}}
+]
+
+Example 2 (Risk Disclosure):
+Text: "[TSLA | 2023 | Item 1A] We are subject to risks associated with supply chain disruptions and semiconductor shortages that could adversely affect our manufacturing operations."
+Output:
+[
+  {{"head": "TSLA", "head_type": "ORG", "relation": "Reports_Risk", "tail": "supply chain disruptions", "tail_type": "RISK_FACTOR"}},
+  {{"head": "TSLA", "head_type": "ORG", "relation": "Reports_Risk", "tail": "semiconductor shortages", "tail_type": "RISK_FACTOR"}}
+]
+
+Example 3 (Segments, Products & Leadership):
+Text: "[MSFT | 2024 | Item 1] Microsoft Corp. operates in three segments: Productivity and Business Processes, Intelligent Cloud, and More Personal Computing. The Intelligent Cloud segment produces Azure. Satya Nadella serves as Chief Executive Officer."
+Output:
+[
+  {{"head": "Microsoft Corp.", "head_type": "ORG", "relation": "Operates_In", "tail": "Productivity and Business Processes", "tail_type": "SEGMENT"}},
+  {{"head": "Microsoft Corp.", "head_type": "ORG", "relation": "Operates_In", "tail": "Intelligent Cloud", "tail_type": "SEGMENT"}},
+  {{"head": "Microsoft Corp.", "head_type": "ORG", "relation": "Operates_In", "tail": "More Personal Computing", "tail_type": "SEGMENT"}},
+  {{"head": "Intelligent Cloud", "head_type": "SEGMENT", "relation": "Produces", "tail": "Azure", "tail_type": "PRODUCT"}},
+  {{"head": "Microsoft Corp.", "head_type": "ORG", "relation": "Led_By", "tail": "Satya Nadella", "tail_type": "PERSON"}}
+]
+
+Example 4 (Negative Example - Boilerplate/No Relations):
+Text: "[AAPL | 2024 | Part I] Table of Contents. Item 1. Business. Item 1A. Risk Factors. Item 1B. Unresolved Staff Comments."
+Output:
+[]
+
+================================================================================
+FORBIDDEN COUNTER-EXAMPLES (DO NOT REPEAT THESE DEFECTS):
+- FORBIDDEN: [{{"head": "The Corporation", "head_type": "Company", "relation": "Reports_Risk", "tail": "The valuation of employee stock purchase rights and the related assumptions are for the employee stock purchases made during the respective fiscal years.", "tail_type": "Description"}}]
+  * Violations: "Company" and "Description" are illegal types; tail is a 24-word sentence; relation is not a risk; head is unresolved pronoun/generic.
+- FORBIDDEN: [{{"head": "Apple Inc.", "head_type": "ORG", "relation": "Has_Metric", "tail": "$89.5 billion", "tail_type": "FIN_METRIC"}}]
+  * Violation: Raw dollar figures and percentages are not entities. Extract the metric name ("net sales").
+<|im_end|>
 <|im_start|>user
-The following text is an excerpt from a Form 10-K filing for {company_name}.
 Document Context: {context}
-
-Any pronoun or generic reference to "the Company," "we," "our," or similar in this text refers strictly to {company_name} ({context}) unless the text explicitly names a different entity (e.g. a subsidiary or named executive). Do NOT hallucinate relations with entities or timeframes outside this filing context.
-
-Extract ALL valid relations from the text below using ONLY the entity types and relationship types defined in the schema. Do not invent new entity or relationship types under any circumstances.
-
-CRITICAL GUIDELINES:
-- "head" and "tail" MUST be concise entity names or core noun phrases (strictly 1 to 6 words, e.g. "Net Income", "Employee Stock Purchase Rights", "iPhone 15", "Tim Cook"). NEVER extract an entire sentence, explanatory clause, percentage narrative, or paragraph as an entity.
-- "head_type" and "tail_type" MUST be strictly chosen from: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
-  * Use ORG for all corporations, subsidiaries, and companies (NEVER use "Company" or "Corporation").
-  * Use FIN_METRIC for all financial metrics, liabilities, rates, and accounting figures (NEVER use "Metric" or "Description").
-  * Use PRODUCT for all products, tools, and offerings (NEVER use "Program").
-  * Use SEGMENT for all business reporting units and divisions.
-- Every triple's "relation" must be strictly one of: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
-- Resolve "the Company," "we," "our," etc. directly to "{company_name}" in the head field — never leave a pronoun or generic company reference as an entity name.
-- If no valid relations exist in the text, output an empty JSON list: [].
-- Output strictly a JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". No prose, no markdown code fences, no explanation — JSON only.
-
-Example Text: "Apple Inc. released the new iPhone 15."
-Example Output: [{{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone 15", "tail_type": "PRODUCT"}}]
-
+Filing Company: {company_name}
 Schema: {schema}
-Document Context: {context}
-Company: {company_name}
-Text: {text}
+
+Filing Text:
+\"\"\"
+{text}
+\"\"\"
+
+Extract all valid, concise knowledge graph triples from the filing text conforming strictly to the ontology and extraction rules.
 JSON Output:<|im_end|>
 <|im_start|>assistant
 """
 
 CRITIC_PROMPT = """<|im_start|>system
-You are a strict financial data auditor responsible for quality-controlling knowledge graphs extracted from SEC filings. You have zero tolerance for schema violations, hallucinated entities, or triples that misrepresent the source text. Your critiques are used directly by a downstream refinement agent, so they must be specific and actionable.<|im_end|>
+You are the Lead Knowledge Graph Auditor for the FinReflectKG pipeline. Your task is to perform an uncompromising quality audit on triples extracted by the Extractor agent from SEC Form 10-K filings.
+
+Any defect in these triples will degrade downstream neural student model training. You must detect every violation and provide explicit, actionable corrections.
+
+SCHEMA REFERENCE:
+- Entity Types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT
+- Relationship Types: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By
+- Semantic Signatures:
+  * Has_Metric: [ORG | SEGMENT] -> [FIN_METRIC]
+  * Produces: [ORG | SEGMENT] -> [PRODUCT]
+  * Operates_In: [ORG] -> [SEGMENT]
+  * Reports_Risk: [ORG | SEGMENT] -> [RISK_FACTOR]
+  * Led_By: [ORG | SEGMENT] -> [PERSON]<|im_end|>
 <|im_start|>user
-The primary entity for this document is {company_name} (Document Context: {context}). Any triple describing "the Company," "we," "our," etc. should already have been resolved to "{company_name}" — treat an unresolved pronoun, generic reference, or hallucinated out-of-context entity left in a head/tail field as a violation.
-
-Review the extracted triples against the source text, filing context, and schema. For each triple, check the following failure modes and flag every violation found, quoting the offending triple exactly:
-
-1. **Invalid or Non-Conforming Type**: The head_type or tail_type is NOT strictly one of ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT (e.g. using "Company", "Metric", "Description", or "Program"). Must be corrected to the canonical schema type.
-2. **Oversized Entity (Sentence as Node)**: The head or tail is a full sentence, clause, or narrative (>6 words) rather than a concise entity name. Quote the concise core noun phrase to replace it.
-3. **Disconnected from primary entity**: The relationship does not explicitly and traceably link back to {company_name}.
-4. **Unresolved pronoun**: The head or tail is "the Company," "we," "our," "it," or similar rather than "{company_name}".
-5. **Contextual Hallucination**: The triple introduces entities, years, or corporate relationships that contradict the document context {context}.
-6. **Unsupported claim**: The triple asserts something not actually stated in the text.
-7. **Duplicate**: Redundant representation of the same fact.
-8. **Missed extraction**: A clearly valid, schema-conformant relation is present in the text but missing from the extracted triples.
-
-For each issue found, state: (a) the exact triple in question, (b) which failure mode it violates, and (c) a concrete suggested fix.
-
-Schema: {schema}
 Document Context: {context}
-Company: {company_name}
-Text: {text}
-Extracted Triples: {triples}
+Filing Company: {company_name}
+Schema: {schema}
 
-If every triple is fully valid and no relations are missing, output exactly "PASS" and nothing else. Otherwise, provide your critique as a structured list of issues.<|im_end|>
+Filing Text:
+\"\"\"
+{text}
+\"\"\"
+
+Extracted Triples:
+{triples}
+
+Audit each triple against the filing text and ontology schema. Check for these specific failure modes:
+
+1. **Non-Canonical Entity Type**: head_type or tail_type is NOT strictly one of the 7 allowed types (e.g. using "Company", "Metric", "Description", "Program", "Service", "Division", "KPI"). Must be converted to canonical schema type.
+2. **Invalid Relation Type or Semantic Signature Mismatch**: The relation is not one of the 5 allowed relations, or violates argument types (e.g. Has_Metric pointing to something other than FIN_METRIC, Reports_Risk pointing to an accounting narrative or non-RISK_FACTOR).
+3. **Oversized Entity (Sentence as Node)**: head or tail is a full sentence, clause, narrative, or exceeds 5 words. Quote the exact concise 1-4 word core noun phrase to replace it.
+4. **Non-Verbatim / Hallucinated Span**: The tail (or head) does not appear verbatim in the source text or context prefix.
+5. **Standalone Number or Date**: Tail is a raw number, dollar amount, percentage, or date (e.g. "$5.2B", "15%").
+6. **Unresolved Pronoun**: head is "we", "our", "the Company", or "The Corporation" instead of "{company_name}" or the ticker in {context}.
+7. **Redundant / Duplicate**: Multiple triples representing the exact same fact.
+8. **Missed Valid Relation**: A clear relation stated in the text was omitted.
+
+If all triples are 100% compliant, concise, verbatim, and correct, output exactly "PASS".
+Otherwise, list each issue with:
+- Offending Triple
+- Defect Type
+- Exact Actionable Fix (specifying canonical types and shortened noun phrases)<|im_end|>
 <|im_start|>assistant
 """
 
 REFINER_PROMPT = """<|im_start|>system
-You are a Knowledge Graph refinement agent responsible for producing the final, clean set of triples for the FinReflectKG pipeline. You take the critic's feedback as ground truth and apply every correction precisely, without introducing new errors or deviating from the schema.<|im_end|>
+You are the Final Knowledge Graph Refiner for the FinReflectKG pipeline. Your mission is to take the Extractor's initial triples and the Critic's audit feedback, and output the definitive, schema-perfect JSON dataset of knowledge graph triples.
+
+HARD REFINEMENT DIRECTIVES:
+1. STRICT TYPE CANONICALIZATION:
+   - Convert all non-schema types to the 7 canonical types:
+     * "Company", "Corporation", "Firm" -> "ORG"
+     * "Metric", "KPI", "Financial Metric", "Description" -> "FIN_METRIC"
+     * "Program", "Service", "System", "Offering" -> "PRODUCT"
+     * "Division", "Unit" -> "SEGMENT"
+     * "Risk", "Threat", "Issue" -> "RISK_FACTOR"
+   - Discard any triple whose types cannot be mapped to the 7 canonical types: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT.
+2. ENFORCE VALID RELATIONS:
+   - Every relation MUST be strictly one of: Has_Metric, Produces, Operates_In, Reports_Risk, Led_By.
+   - Discard any triple with an unapproved relation.
+3. SHORTEN OVERSIZED ENTITIES:
+   - Replace any full sentence, clause, or multi-word narrative with its concise core noun phrase (1 to 5 words) appearing verbatim in the text.
+   - Example: "The valuation of employee stock purchase rights and the related assumptions..." -> "employee stock purchase rights"
+   - Example: "Implied volatility for traded options on our stock as the expected volatility assumption..." -> "implied volatility"
+4. RESOLVE COMPANY REFERENCES:
+   - Replace "we", "our", "the Company", "The Corporation" with "{company_name}" or the ticker from {context}.
+5. REMOVE NUMERIC STANDALONES & UNGROUNDED CLAUSES:
+   - Delete any triple whose entity is a raw number, percentage, date, or dollar amount.
+   - Delete any triple where the tail entity does not appear in the filing text.
+6. APPLY CRITIC ADDITIONS & CORRECTIONS:
+   - Incorporate any valid missed relations identified by the Critic.
+   - If the Critic output was "PASS", return the initial triples cleanly formatted.
+7. PURE JSON OUTPUT:
+   - Output ONLY a valid JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". No markdown code blocks, no conversational preamble.<|im_end|>
 <|im_start|>user
-The primary entity for this document is {company_name} (Document Context: {context}). Using the critic's feedback, correct the initial triples according to these rules:
-
-- Normalize all entity types strictly to: ORG, PERSON, PRODUCT, SEGMENT, FIN_METRIC, RISK_FACTOR, EVENT (e.g. change "Company" -> "ORG", "Metric" -> "FIN_METRIC", "Program" -> "PRODUCT").
-- Shorten any oversized head or tail entities into concise noun phrases (1 to 6 words).
-- Remove any triple flagged as invalid, hallucinated, duplicate, or containing a raw number/date/dollar amount as a standalone entity.
-- Replace all pronouns and vague references with "{company_name}".
-- Add any missed valid relations the critic identified.
-- Preserve all triples the critic did not flag, unchanged.
-- If the critic's feedback was "PASS", return the initial triples exactly as given.
-
-Output ONLY a valid JSON list of dictionaries with keys: "head", "head_type", "relation", "tail", "tail_type". Do not include markdown formatting, code fences, or any explanatory text — JSON only.
-
 Document Context: {context}
-Company: {company_name}
-Text: {text}
-Initial Triples: {triples}
-Critic Feedback: {critique}
-Final JSON Output:<|im_end|>
+Filing Company: {company_name}
+Schema: {schema}
+
+Filing Text:
+\"\"\"
+{text}
+\"\"\"
+
+Initial Triples:
+{triples}
+
+Critic Feedback:
+{critique}
+
+Output the final, refined JSON list of triples:
+JSON Output:<|im_end|>
 <|im_start|>assistant
 """
 
@@ -125,7 +248,16 @@ def format_schema_prompt(schema_params: Optional[Dict[str, Any]]) -> str:
         r.replace("_", " ").title().replace(" ", "_") for r in relation_types
     )
 
-    return f"\nEntity Types: {ent_str}.\nRelationship Types: {rel_str}.\n"
+    return (
+        f"\nEntity Types: {ent_str}.\n"
+        f"Relationship Types: {rel_str}.\n\n"
+        "Semantic Signatures & Allowed Relations:\n"
+        "- Has_Metric: [ORG or SEGMENT] -> [FIN_METRIC] (Named financial metric, ratio, or accounting line item; tail must be metric name, never a raw number, dollar amount, or full sentence)\n"
+        "- Produces: [ORG or SEGMENT] -> [PRODUCT] (Commercial product, software platform, hardware, online service)\n"
+        "- Operates_In: [ORG] -> [SEGMENT] (Reportable business segment, division, or geographic operating unit)\n"
+        "- Reports_Risk: [ORG or SEGMENT] -> [RISK_FACTOR] (Explicit operational, competitive, macroeconomic, or market risk factor; concise noun phrase of 1 to 5 words)\n"
+        "- Led_By: [ORG or SEGMENT] -> [PERSON] (Named executive officer, director, or board member)\n"
+    )
 
 
 def _format_chunk_context(row: pd.Series, company_name: str) -> str:
@@ -425,6 +557,7 @@ def generate_teacher_triplets(
         )
         ref_prompts = [
             REFINER_PROMPT.format(
+                schema=schema_text,
                 context=sub_contexts[i],
                 company_name=sub_companies[i],
                 text=sub_texts[i][:max_ref_text_chars],
