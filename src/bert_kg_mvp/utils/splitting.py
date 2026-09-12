@@ -67,12 +67,14 @@ def split_by_company(
         n_train = int(n * train_ratio)
         n_val = int(n * val_ratio)
         train_df = shuffled.iloc[:n_train]
-        val_df = shuffled.iloc[n_train:n_train + n_val]
-        test_df = shuffled.iloc[n_train + n_val:]
+        val_df = shuffled.iloc[n_train : n_train + n_val]
+        test_df = shuffled.iloc[n_train + n_val :]
         return train_df, val_df, test_df
 
     # Shuffle company identifiers
-    companies_series = pd.Series(unique_companies).sample(frac=1, random_state=seed).tolist()
+    companies_series = (
+        pd.Series(unique_companies).sample(frac=1, random_state=seed).tolist()
+    )
 
     n_train_comp = max(1, int(round(n_companies * train_ratio)))
     n_val_comp = max(1, int(round(n_companies * val_ratio)))
@@ -82,8 +84,8 @@ def split_by_company(
         n_val_comp = 1
 
     train_comps = set(companies_series[:n_train_comp])
-    val_comps = set(companies_series[n_train_comp:n_train_comp + n_val_comp])
-    test_comps = set(companies_series[n_train_comp + n_val_comp:])
+    val_comps = set(companies_series[n_train_comp : n_train_comp + n_val_comp])
+    test_comps = set(companies_series[n_train_comp + n_val_comp :])
 
     train_df = df_copy[df_copy["company_id"].isin(train_comps)].copy()
     val_df = df_copy[df_copy["company_id"].isin(val_comps)].copy()

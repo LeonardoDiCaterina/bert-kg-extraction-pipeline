@@ -33,8 +33,7 @@ __all__ = [
 
 
 def _ensure_provenance_metadata(
-    df: pd.DataFrame,
-    data_prep_params: Dict[str, Any]
+    df: pd.DataFrame, data_prep_params: Dict[str, Any]
 ) -> pd.DataFrame:
     """
     Self-healing provenance enrichment:
@@ -45,27 +44,41 @@ def _ensure_provenance_metadata(
     df = df.copy()
 
     # 1. Recover doc_id if missing or completely empty
-    needs_doc_id = "doc_id" not in df.columns or not df["doc_id"].astype(str).str.strip().any()
+    needs_doc_id = (
+        "doc_id" not in df.columns or not df["doc_id"].astype(str).str.strip().any()
+    )
     if needs_doc_id:
         custom_chunks_path = data_prep_params.get("parsed_chunks_path")
         candidate_paths = [Path(custom_chunks_path)] if custom_chunks_path else []
-        candidate_paths.extend([
-            Path("data/02_intermediate/parsed_10k_chunks.csv"),
-            Path("data/02_intermediate/parsed_10k_chunks.parquet"),
-        ])
+        candidate_paths.extend(
+            [
+                Path("data/02_intermediate/parsed_10k_chunks.csv"),
+                Path("data/02_intermediate/parsed_10k_chunks.parquet"),
+            ]
+        )
         for p in candidate_paths:
             if p.exists():
                 try:
-                    chunks_df = pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p)
+                    chunks_df = (
+                        pd.read_parquet(p) if p.suffix == ".parquet" else pd.read_csv(p)
+                    )
                     if "doc_id" in chunks_df.columns:
                         if len(chunks_df) == len(df):
                             df["doc_id"] = chunks_df["doc_id"].values
-                            print(f"[Auto-Enrich] Reconciled doc_id from {p} via 1:1 row alignment.")
+                            print(
+                                f"[Auto-Enrich] Reconciled doc_id from {p} via 1:1 row alignment."
+                            )
                             break
-                        elif "chunk_id" in df.columns and "chunk_id" in chunks_df.columns:
-                            mapping = chunks_df.drop_duplicates("chunk_id").set_index("chunk_id")["doc_id"]
+                        elif (
+                            "chunk_id" in df.columns and "chunk_id" in chunks_df.columns
+                        ):
+                            mapping = chunks_df.drop_duplicates("chunk_id").set_index(
+                                "chunk_id"
+                            )["doc_id"]
                             df["doc_id"] = df["chunk_id"].map(mapping).fillna("")
-                            print(f"[Auto-Enrich] Reconciled doc_id from {p} via chunk_id mapping.")
+                            print(
+                                f"[Auto-Enrich] Reconciled doc_id from {p} via chunk_id mapping."
+                            )
                             break
                 except Exception as exc:
                     print(f"Notice: Could not load candidate chunks from {p}: {exc}")
@@ -80,7 +93,9 @@ def _ensure_provenance_metadata(
         print(f"[Auto-Enrich] Extracted ticker/year from doc_id for {len(df)} samples.")
 
     # 3. Infer section label from text if missing
-    has_section = "section" in df.columns and df["section"].astype(str).str.strip().any()
+    has_section = (
+        "section" in df.columns and df["section"].astype(str).str.strip().any()
+    )
     if not has_section and "text" in df.columns:
         df["section"] = df["text"].astype(str).apply(infer_section_label)
 
@@ -117,11 +132,11 @@ def prepare_training_data(
     # Dynamic schema from configuration
     entity_types = schema_params.get(
         "entity_types",
-        ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"]
+        ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"],
     )
     relation_types = schema_params.get(
         "relation_types",
-        ["has_metric", "produces", "operates_in", "reports_risk", "led_by"]
+        ["has_metric", "produces", "operates_in", "reports_risk", "led_by"],
     )
 
     ent_to_id = {ent.lower(): i for i, ent in enumerate(entity_types)}
@@ -138,7 +153,11 @@ def prepare_training_data(
 
     for _, row in teacher_data.iterrows():
         try:
-            triplets = json.loads(row["triples"].replace("'", '"')) if isinstance(row["triples"], str) else row["triples"]
+            triplets = (
+                json.loads(row["triples"].replace("'", '"'))
+                if isinstance(row["triples"], str)
+                else row["triples"]
+            )
         except (json.JSONDecodeError, TypeError, AttributeError):
             continue
 
@@ -153,14 +172,20 @@ def prepare_training_data(
         # without requiring architectural changes.
         # Format: "[AAPL | 2024 | Item 7 – MD&A] <original text>"
         if use_context_prefix:
-            ticker  = str(row.get("ticker",  "")).strip()
-            year    = str(row.get("year",    "")).strip()
+            ticker = str(row.get("ticker", "")).strip()
+            year = str(row.get("year", "")).strip()
             section = str(row.get("section", "")).strip()
             prefix_parts = [p for p in [ticker, year, section] if p]
             if prefix_parts:
                 text = f"[{' | '.join(prefix_parts)}] {text}"
 
-        encodings = tokenizer(text, padding="max_length", max_length=max_seq_length, truncation=True, return_tensors="pt")
+        encodings = tokenizer(
+            text,
+            padding="max_length",
+            max_length=max_seq_length,
+            truncation=True,
+            return_tensors="pt",
+        )
         ids = encodings["input_ids"][0]
         mask = encodings["attention_mask"][0]
 
@@ -168,34 +193,50 @@ def prepare_training_data(
         for t in triplets:
             sub = t.get("head", "").strip().lower()
             if sub == "exact company name":
-                sub = "apple inc." if "AAPL" in row.get("doc_id", "") else ("microsoft corp." if "MSFT" in row.get("doc_id", "") else "company")
+                sub = (
+                    "apple inc."
+                    if "AAPL" in row.get("doc_id", "")
+                    else (
+                        "microsoft corp."
+                        if "MSFT" in row.get("doc_id", "")
+                        else "company"
+                    )
+                )
 
             sub_type = t.get("head_type", "").strip().lower()
             rel = t.get("relation", "").strip().lower()
             obj = t.get("tail", "").strip().lower()
             obj_type = t.get("tail_type", "").strip().lower()
 
-            if sub_type not in ent_to_id or obj_type not in ent_to_id or rel not in rel_to_id:
+            if (
+                sub_type not in ent_to_id
+                or obj_type not in ent_to_id
+                or rel not in rel_to_id
+            ):
                 continue
 
             subj_start, subj_end = align_entities_to_tokens(text, sub, tokenizer, ids)
             obj_start, obj_end = align_entities_to_tokens(text, obj, tokenizer, ids)
 
             if subj_start != -1 and obj_start != -1:
-                valid_triples.append({
-                    "relation": rel_to_id[rel],
-                    "subj_type": ent_to_id[sub_type],
-                    "obj_type": ent_to_id[obj_type],
-                    "subj_span": [subj_start, subj_end],
-                    "obj_span": [obj_start, obj_end]
-                })
+                valid_triples.append(
+                    {
+                        "relation": rel_to_id[rel],
+                        "subj_type": ent_to_id[sub_type],
+                        "obj_type": ent_to_id[obj_type],
+                        "subj_span": [subj_start, subj_end],
+                        "obj_span": [obj_start, obj_end],
+                    }
+                )
 
         if not valid_triples:
             continue
 
         valid_triples = valid_triples[:max_gt_triples]
 
-        rel_tensor = torch.full((max_gt_triples,), len(relation_types), dtype=torch.long)
+        rel_tensor = torch.full(
+            (max_gt_triples,), len(relation_types), dtype=torch.long
+        )
         subj_type_tensor = torch.zeros((max_gt_triples,), dtype=torch.long)
         obj_type_tensor = torch.zeros((max_gt_triples,), dtype=torch.long)
         subj_span_tensor = torch.zeros((max_gt_triples, 2), dtype=torch.long)
@@ -216,13 +257,15 @@ def prepare_training_data(
         gt_subj_spans_list.append(subj_span_tensor)
         gt_obj_spans_list.append(obj_span_tensor)
 
-        metadata_list.append({
-            "doc_id":   row.get("doc_id",   ""),
-            "chunk_id": row.get("chunk_id", ""),
-            "ticker":   row.get("ticker",   ""),
-            "year":     row.get("year",     ""),
-            "section":  row.get("section",  ""),
-        })
+        metadata_list.append(
+            {
+                "doc_id": row.get("doc_id", ""),
+                "chunk_id": row.get("chunk_id", ""),
+                "ticker": row.get("ticker", ""),
+                "year": row.get("year", ""),
+                "section": row.get("section", ""),
+            }
+        )
 
         if len(input_ids_list) >= max_samples:
             break
@@ -230,23 +273,22 @@ def prepare_training_data(
     print(f"Gathered {len(input_ids_list)} valid financial samples.")
 
     tensors = {
-        "input_ids":      torch.stack(input_ids_list),
+        "input_ids": torch.stack(input_ids_list),
         "attention_mask": torch.stack(attention_masks_list),
-        "relations":      torch.stack(gt_relations_list),
-        "subj_types":     torch.stack(gt_subj_types_list),
-        "obj_types":      torch.stack(gt_obj_types_list),
-        "subj_spans":     torch.stack(gt_subj_spans_list),
-        "obj_spans":      torch.stack(gt_obj_spans_list),
+        "relations": torch.stack(gt_relations_list),
+        "subj_types": torch.stack(gt_subj_types_list),
+        "obj_types": torch.stack(gt_obj_types_list),
+        "subj_spans": torch.stack(gt_subj_spans_list),
+        "obj_spans": torch.stack(gt_obj_spans_list),
         # metadata is kept as a plain list of dicts (not a tensor) so it can
         # travel alongside predictions for traceability at inference time.
-        "metadata":       metadata_list,
+        "metadata": metadata_list,
     }
     return tensors, tokenizer
 
 
 def parse_sec_filings(
-    data_prep_params: Union[str, Dict[str, Any], None] = None,
-    max_words: int = 1500
+    data_prep_params: Union[str, Dict[str, Any], None] = None, max_words: int = 1500
 ) -> pd.DataFrame:
     """
     Parses SEC 10-K PDFs and EDGAR SGML filings into table-aware markdown chunks.
@@ -260,10 +302,16 @@ def parse_sec_filings(
     if isinstance(data_prep_params, dict):
         raw_data_dir = data_prep_params.get("raw_pdf_dir", "data/01_raw")
         max_words = data_prep_params.get("max_chunk_words", 1500)
-        target_items_regex = data_prep_params.get("target_items_regex", r"(item\s+(1|1a|7|7a|8)\.?\s+)")
-        stop_items_regex = data_prep_params.get("stop_items_regex", r"(item\s+(9|10|15)\.?\s+|signat(ure|ures)|part\s+iv)")
+        target_items_regex = data_prep_params.get(
+            "target_items_regex", r"(item\s+(1|1a|7|7a|8)\.?\s+)"
+        )
+        stop_items_regex = data_prep_params.get(
+            "stop_items_regex", r"(item\s+(9|10|15)\.?\s+|signat(ure|ures)|part\s+iv)"
+        )
     else:
-        raw_data_dir = data_prep_params if isinstance(data_prep_params, str) else "data/01_raw"
+        raw_data_dir = (
+            data_prep_params if isinstance(data_prep_params, str) else "data/01_raw"
+        )
         target_items_regex = r"(item\s+(1|1a|7|7a|8)\.?\s+)"
         stop_items_regex = r"(item\s+(9|10|15)\.?\s+|signat(ure|ures)|part\s+iv)"
 
@@ -293,7 +341,9 @@ def parse_sec_filings(
 
                 html_content = extract_html_from_sgml(content)
                 if html_content:
-                    tmp_file = tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8")
+                    tmp_file = tempfile.NamedTemporaryFile(
+                        suffix=".html", delete=False, mode="w", encoding="utf-8"
+                    )
                     tmp_file.write(html_content)
                     tmp_file.close()
                     target_parse_path = tmp_file.name
@@ -334,21 +384,31 @@ def parse_sec_filings(
             if item.label == "table":
                 if current_chunk.strip():
                     if is_informative_chunk(current_chunk):
-                        all_chunks.append({
-                            "doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip(),
-                            "ticker": doc_meta["ticker"], "year": doc_meta["year"],
-                            "section": current_section_label,
-                        })
+                        all_chunks.append(
+                            {
+                                "doc_id": doc_id,
+                                "chunk_id": chunk_idx,
+                                "text": current_chunk.strip(),
+                                "ticker": doc_meta["ticker"],
+                                "year": doc_meta["year"],
+                                "section": current_section_label,
+                            }
+                        )
                         chunk_idx += 1
                     current_chunk = ""
 
                 table_md = item.export_to_markdown(doc)
                 table_text = f"[TABLE START]\n{table_md}\n[TABLE END]"
-                all_chunks.append({
-                    "doc_id": doc_id, "chunk_id": chunk_idx, "text": table_text,
-                    "ticker": doc_meta["ticker"], "year": doc_meta["year"],
-                    "section": current_section_label,
-                })
+                all_chunks.append(
+                    {
+                        "doc_id": doc_id,
+                        "chunk_id": chunk_idx,
+                        "text": table_text,
+                        "ticker": doc_meta["ticker"],
+                        "year": doc_meta["year"],
+                        "section": current_section_label,
+                    }
+                )
                 chunk_idx += 1
 
             elif hasattr(item, "text") and item.text:
@@ -356,19 +416,29 @@ def parse_sec_filings(
 
                 if len(current_chunk.split()) > max_words:
                     if is_informative_chunk(current_chunk):
-                        all_chunks.append({
-                            "doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip(),
-                            "ticker": doc_meta["ticker"], "year": doc_meta["year"],
-                            "section": current_section_label,
-                        })
+                        all_chunks.append(
+                            {
+                                "doc_id": doc_id,
+                                "chunk_id": chunk_idx,
+                                "text": current_chunk.strip(),
+                                "ticker": doc_meta["ticker"],
+                                "year": doc_meta["year"],
+                                "section": current_section_label,
+                            }
+                        )
                         chunk_idx += 1
                     current_chunk = ""
 
         if current_chunk.strip() and is_informative_chunk(current_chunk):
-            all_chunks.append({
-                "doc_id": doc_id, "chunk_id": chunk_idx, "text": current_chunk.strip(),
-                "ticker": doc_meta["ticker"], "year": doc_meta["year"],
-                "section": current_section_label,
-            })
+            all_chunks.append(
+                {
+                    "doc_id": doc_id,
+                    "chunk_id": chunk_idx,
+                    "text": current_chunk.strip(),
+                    "ticker": doc_meta["ticker"],
+                    "year": doc_meta["year"],
+                    "section": current_section_label,
+                }
+            )
 
     return pd.DataFrame(all_chunks)

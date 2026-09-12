@@ -2,7 +2,9 @@ from typing import Tuple
 import torch
 
 
-def align_entities_to_tokens(text: str, entity_str: str, tokenizer, input_ids: torch.Tensor) -> Tuple[int, int]:
+def align_entities_to_tokens(
+    text: str, entity_str: str, tokenizer, input_ids: torch.Tensor
+) -> Tuple[int, int]:
     """
     Finds the start and end token indices of entity_str in the tokenized text using
     a sliding window search across the input_ids sequence.
@@ -27,8 +29,7 @@ def align_entities_to_tokens(text: str, entity_str: str, tokenizer, input_ids: t
             continue
         len_ent = len(ent_ids)
         for i in range(len(seq) - len_ent + 1):
-            if seq[i:i + len_ent] == ent_ids:
+            if seq[i : i + len_ent] == ent_ids:
                 return i, i + len_ent - 1
 
     return -1, -1
-

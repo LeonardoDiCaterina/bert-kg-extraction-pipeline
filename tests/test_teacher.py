@@ -22,7 +22,7 @@ def test_format_schema_prompt():
     # Custom schema
     custom = {
         "entity_types": ["org", "fin_metric"],
-        "relation_types": ["has_metric", "reports_risk"]
+        "relation_types": ["has_metric", "reports_risk"],
     }
     rendered = format_schema_prompt(custom)
     assert "ORG, FIN_METRIC" in rendered
@@ -45,36 +45,55 @@ def test_generate_teacher_triplets_mocked_llm():
 
     mock_llm_instance.generate.side_effect = [
         # Agent 1 outputs
-        [MockOutput('[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]')],
+        [
+            MockOutput(
+                '[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]'
+            )
+        ],
         # Agent 2 outputs
         [MockOutput("PASS")],
         # Agent 3 outputs (with markdown wrapper)
-        [MockOutput('```json\n[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]\n```')],
+        [
+            MockOutput(
+                '```json\n[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]\n```'
+            )
+        ],
     ]
 
     mock_llm_cls = MagicMock(return_value=mock_llm_instance)
     mock_sampling_params = MagicMock()
 
-    with patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls), \
-         patch("bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams", mock_sampling_params):
-        df_input = pd.DataFrame([{
-            "doc_id": "AAPL_2024.pdf",
-            "chunk_id": "chunk_0",
-            "text": "Apple produces iPhone."
-        }])
+    with (
+        patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls),
+        patch(
+            "bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams",
+            mock_sampling_params,
+        ),
+    ):
+        df_input = pd.DataFrame(
+            [
+                {
+                    "doc_id": "AAPL_2024.pdf",
+                    "chunk_id": "chunk_0",
+                    "text": "Apple produces iPhone.",
+                }
+            ]
+        )
 
         teacher_params = {
             "model_name": "mock_qwen",
             "temperature": 0.2,
             "max_tokens": 512,
-            "company_map": {"AAPL": "Apple Inc."}
+            "company_map": {"AAPL": "Apple Inc."},
         }
         schema_params = {
             "entity_types": ["org", "product"],
-            "relation_types": ["produces"]
+            "relation_types": ["produces"],
         }
 
-        result_df = generate_teacher_triplets(df_input, teacher_params=teacher_params, schema_params=schema_params)
+        result_df = generate_teacher_triplets(
+            df_input, teacher_params=teacher_params, schema_params=schema_params
+        )
         assert isinstance(result_df, pd.DataFrame)
         assert len(result_df) == 1
         assert "triples" in result_df.columns
@@ -87,7 +106,13 @@ def test_generate_teacher_triplets_checkpoint_resumption(tmp_path):
     agent1_file = tmp_path / "teacher_agent1_extractions.parquet"
     agent2_file = tmp_path / "teacher_agent2_critiques.parquet"
 
-    pd.DataFrame({"output": ['[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "Mac", "tail_type": "PRODUCT"}]']}).to_parquet(agent1_file)
+    pd.DataFrame(
+        {
+            "output": [
+                '[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "Mac", "tail_type": "PRODUCT"}]'
+            ]
+        }
+    ).to_parquet(agent1_file)
     pd.DataFrame({"output": ["PASS"]}).to_parquet(agent2_file)
 
     mock_llm_instance = MagicMock()
@@ -98,19 +123,30 @@ def test_generate_teacher_triplets_checkpoint_resumption(tmp_path):
 
     # Only Agent 3 should be invoked because Agent 1 and Agent 2 checkpoints exist!
     mock_llm_instance.generate.return_value = [
-        MockOutput('[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "Mac", "tail_type": "PRODUCT"}]')
+        MockOutput(
+            '[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "Mac", "tail_type": "PRODUCT"}]'
+        )
     ]
 
     mock_llm_cls = MagicMock(return_value=mock_llm_instance)
     mock_sampling_params = MagicMock()
 
-    with patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls), \
-         patch("bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams", mock_sampling_params):
-        df_input = pd.DataFrame([{
-            "doc_id": "AAPL_2024.pdf",
-            "chunk_id": "chunk_0",
-            "text": "Apple produces Mac."
-        }])
+    with (
+        patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls),
+        patch(
+            "bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams",
+            mock_sampling_params,
+        ),
+    ):
+        df_input = pd.DataFrame(
+            [
+                {
+                    "doc_id": "AAPL_2024.pdf",
+                    "chunk_id": "chunk_0",
+                    "text": "Apple produces Mac.",
+                }
+            ]
+        )
 
         teacher_params = {
             "checkpoint_dir": str(tmp_path),
@@ -138,12 +174,24 @@ def test_generate_teacher_triplets_subsampling():
     mock_llm_cls = MagicMock(return_value=mock_llm_instance)
     mock_sampling_params = MagicMock()
 
-    with patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls), \
-         patch("bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams", mock_sampling_params):
-        df_input = pd.DataFrame([
-            {"doc_id": "AAPL_2024.pdf", "ticker": "AAPL", "chunk_id": f"chunk_{i}", "text": f"Text {i}"}
-            for i in range(10)
-        ])
+    with (
+        patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls),
+        patch(
+            "bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams",
+            mock_sampling_params,
+        ),
+    ):
+        df_input = pd.DataFrame(
+            [
+                {
+                    "doc_id": "AAPL_2024.pdf",
+                    "ticker": "AAPL",
+                    "chunk_id": f"chunk_{i}",
+                    "text": f"Text {i}",
+                }
+                for i in range(10)
+            ]
+        )
 
         teacher_params = {
             "max_samples": 2,
@@ -163,22 +211,27 @@ def test_generate_teacher_triplets_prompt_clamping(tmp_path):
 
     def mock_generate(prompts, sampling_params):
         captured_prompts.append(prompts)
+
         class MockOutput:
             def __init__(self, text):
                 self.outputs = [MagicMock(text=text)]
+
         return [MockOutput("[]")] * len(prompts)
 
     mock_llm_instance.generate.side_effect = mock_generate
     mock_llm_cls = MagicMock(return_value=mock_llm_instance)
     mock_sampling_params = MagicMock()
 
-    with patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls), \
-         patch("bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams", mock_sampling_params):
-        df_input = pd.DataFrame([{
-            "doc_id": "AAPL_2024.pdf",
-            "chunk_id": "chunk_0",
-            "text": "A" * 10000
-        }])
+    with (
+        patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls),
+        patch(
+            "bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams",
+            mock_sampling_params,
+        ),
+    ):
+        df_input = pd.DataFrame(
+            [{"doc_id": "AAPL_2024.pdf", "chunk_id": "chunk_0", "text": "A" * 10000}]
+        )
 
         teacher_params = {
             "checkpoint_dir": str(tmp_path),
@@ -205,19 +258,37 @@ def test_generate_teacher_triplets_micro_batch_streaming(tmp_path):
             self.outputs = [MagicMock(text=text)]
 
     mock_llm_instance.generate.return_value = [
-        MockOutput('[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]'),
-        MockOutput('[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPad", "tail_type": "PRODUCT"}]'),
+        MockOutput(
+            '[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPhone", "tail_type": "PRODUCT"}]'
+        ),
+        MockOutput(
+            '[{"head": "Apple Inc.", "head_type": "ORG", "relation": "Produces", "tail": "iPad", "tail_type": "PRODUCT"}]'
+        ),
     ]
 
     mock_llm_cls = MagicMock(return_value=mock_llm_instance)
     mock_sampling_params = MagicMock()
 
-    with patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls), \
-         patch("bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams", mock_sampling_params):
-        df_input = pd.DataFrame([
-            {"doc_id": "AAPL_2024.pdf", "ticker": "AAPL", "year": "2024", "section": "Item 1", "chunk_id": f"c_{i}", "text": f"Text {i}"}
-            for i in range(4)
-        ])
+    with (
+        patch("bert_kg_mvp.pipelines.data_prep.teacher_node.LLM", mock_llm_cls),
+        patch(
+            "bert_kg_mvp.pipelines.data_prep.teacher_node.SamplingParams",
+            mock_sampling_params,
+        ),
+    ):
+        df_input = pd.DataFrame(
+            [
+                {
+                    "doc_id": "AAPL_2024.pdf",
+                    "ticker": "AAPL",
+                    "year": "2024",
+                    "section": "Item 1",
+                    "chunk_id": f"c_{i}",
+                    "text": f"Text {i}",
+                }
+                for i in range(4)
+            ]
+        )
 
         teacher_params = {
             "batch_size": 2,

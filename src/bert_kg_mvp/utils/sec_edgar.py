@@ -22,13 +22,13 @@ def extract_html_from_sgml(content: str) -> Optional[str]:
     if text_start == -1 or text_end == -1:
         return None
 
-    return doc_block[text_start + 6:text_end].strip()
+    return doc_block[text_start + 6 : text_end].strip()
 
 
 def resolve_company_name(
     doc_id: str,
     company_map: Optional[Dict[str, str]] = None,
-    default_name: str = "The Corporation"
+    default_name: str = "The Corporation",
 ) -> str:
     """
     Resolves an SEC filing document ID / ticker to its canonical corporate name.
@@ -114,7 +114,9 @@ def parse_doc_metadata(doc_id: str) -> Dict[str, str]:
             ticker = parts[0]
     else:
         # Fall back: first all-caps word segment up to 5 characters
-        m = re.match(r"([A-Z]{1,5})", doc_upper.replace("-", "").replace("_", " ").strip())
+        m = re.match(
+            r"([A-Z]{1,5})", doc_upper.replace("-", "").replace("_", " ").strip()
+        )
         if m:
             ticker = m.group(1)
 

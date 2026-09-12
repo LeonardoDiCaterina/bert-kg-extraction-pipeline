@@ -25,17 +25,31 @@ def extract_rebel_triplets(text: str) -> List[Dict[str, str]]:
     text = text.strip()
     current = "x"
 
-    for token in text.replace("<s>", "").replace("<pad>", "").replace("</s>", "").split():
+    for token in (
+        text.replace("<s>", "").replace("<pad>", "").replace("</s>", "").split()
+    ):
         if token == "<triplet>":
             current = "t"
             if relation != "":
-                triplets.append({"head": subject.strip(), "type": relation.strip(), "tail": object_.strip()})
+                triplets.append(
+                    {
+                        "head": subject.strip(),
+                        "type": relation.strip(),
+                        "tail": object_.strip(),
+                    }
+                )
                 relation = ""
             subject = ""
         elif token == "<subj>":
             current = "s"
             if relation != "":
-                triplets.append({"head": subject.strip(), "type": relation.strip(), "tail": object_.strip()})
+                triplets.append(
+                    {
+                        "head": subject.strip(),
+                        "type": relation.strip(),
+                        "tail": object_.strip(),
+                    }
+                )
             object_ = ""
         elif token == "<obj>":
             current = "o"
@@ -49,7 +63,9 @@ def extract_rebel_triplets(text: str) -> List[Dict[str, str]]:
                 relation += " " + token
 
     if subject != "" and relation != "" and object_ != "":
-        triplets.append({"head": subject.strip(), "type": relation.strip(), "tail": object_.strip()})
+        triplets.append(
+            {"head": subject.strip(), "type": relation.strip(), "tail": object_.strip()}
+        )
 
     return triplets
 

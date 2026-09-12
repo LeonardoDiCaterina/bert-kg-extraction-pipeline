@@ -33,17 +33,21 @@ def split_dataset_node(
             val_ratio=val_ratio,
             test_ratio=test_ratio,
             seed=seed,
-            company_col="doc_id" if "doc_id" in teacher_triplets.columns else teacher_triplets.columns[0],
+            company_col="doc_id"
+            if "doc_id" in teacher_triplets.columns
+            else teacher_triplets.columns[0],
         )
     else:
         # Standard randomized split
-        shuffled = teacher_triplets.sample(frac=1, random_state=seed).reset_index(drop=True)
+        shuffled = teacher_triplets.sample(frac=1, random_state=seed).reset_index(
+            drop=True
+        )
         n = len(shuffled)
         n_train = int(n * train_ratio)
         n_val = int(n * val_ratio)
         train_df = shuffled.iloc[:n_train].copy()
-        val_df = shuffled.iloc[n_train:n_train + n_val].copy()
-        test_df = shuffled.iloc[n_train + n_val:].copy()
+        val_df = shuffled.iloc[n_train : n_train + n_val].copy()
+        test_df = shuffled.iloc[n_train + n_val :].copy()
 
     print(
         f"Dataset Split Completed ({strategy}): "
@@ -86,8 +90,8 @@ def evaluate_model_on_test(
 
     with torch.no_grad():
         for i in range(0, total_samples, batch_size):
-            b_ids = input_ids[i:i + batch_size].to(device)
-            b_mask = attention_mask[i:i + batch_size].to(device)
+            b_ids = input_ids[i : i + batch_size].to(device)
+            b_mask = attention_mask[i : i + batch_size].to(device)
             bs = b_ids.size(0)
 
             t0 = time.perf_counter()
@@ -110,22 +114,42 @@ def evaluate_model_on_test(
                 true_set = set()
 
                 valid_gt = gt_rels[i + b] != no_relation_idx
-                for r, ss, os in zip(gt_rels[i + b][valid_gt], gt_subj_spans[i + b][valid_gt], gt_obj_spans[i + b][valid_gt]):
-                    subj_str = tokenizer.decode(b_ids[b, ss[0]:ss[1] + 1], skip_special_tokens=True).strip()
-                    obj_str = tokenizer.decode(b_ids[b, os[0]:os[1] + 1], skip_special_tokens=True).strip()
+                for r, ss, os in zip(
+                    gt_rels[i + b][valid_gt],
+                    gt_subj_spans[i + b][valid_gt],
+                    gt_obj_spans[i + b][valid_gt],
+                ):
+                    subj_str = tokenizer.decode(
+                        b_ids[b, ss[0] : ss[1] + 1], skip_special_tokens=True
+                    ).strip()
+                    obj_str = tokenizer.decode(
+                        b_ids[b, os[0] : os[1] + 1], skip_special_tokens=True
+                    ).strip()
                     true_set.add((subj_str, r.item(), obj_str))
 
                 num_queries = outputs["rel_logits"].shape[1]
                 for q in range(num_queries):
                     rel = rel_preds[b, q].item()
                     if rel != no_relation_idx:
-                        s_start = min(subj_start_preds[b, q].item(), subj_end_preds[b, q].item())
-                        s_end = max(subj_start_preds[b, q].item(), subj_end_preds[b, q].item())
-                        o_start = min(obj_start_preds[b, q].item(), obj_end_preds[b, q].item())
-                        o_end = max(obj_start_preds[b, q].item(), obj_end_preds[b, q].item())
+                        s_start = min(
+                            subj_start_preds[b, q].item(), subj_end_preds[b, q].item()
+                        )
+                        s_end = max(
+                            subj_start_preds[b, q].item(), subj_end_preds[b, q].item()
+                        )
+                        o_start = min(
+                            obj_start_preds[b, q].item(), obj_end_preds[b, q].item()
+                        )
+                        o_end = max(
+                            obj_start_preds[b, q].item(), obj_end_preds[b, q].item()
+                        )
 
-                        pred_subj = tokenizer.decode(b_ids[b, s_start:s_end + 1], skip_special_tokens=True).strip()
-                        pred_obj = tokenizer.decode(b_ids[b, o_start:o_end + 1], skip_special_tokens=True).strip()
+                        pred_subj = tokenizer.decode(
+                            b_ids[b, s_start : s_end + 1], skip_special_tokens=True
+                        ).strip()
+                        pred_obj = tokenizer.decode(
+                            b_ids[b, o_start : o_end + 1], skip_special_tokens=True
+                        ).strip()
 
                         if pred_subj and pred_obj:
                             pred_set.add((pred_subj, rel, pred_obj))
@@ -154,21 +178,34 @@ def run_encoder_benchmark(
     Trains and benchmarks multiple encoder backbones on the company-stratified train/test splits.
     Reads list of models from `benchmark_params['models']`.
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     schema = schema_params or {}
-    relation_types = schema.get("relation_types", ["has_metric", "produces", "operates_in", "reports_risk", "led_by"])
-    entity_types = schema.get("entity_types", ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"])
+    relation_types = schema.get(
+        "relation_types",
+        ["has_metric", "produces", "operates_in", "reports_risk", "led_by"],
+    )
+    entity_types = schema.get(
+        "entity_types",
+        ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"],
+    )
     num_relations = len(relation_types)
     num_ent_types = len(entity_types)
     no_relation_idx = num_relations
 
-    models_config = benchmark_params.get("models", [
-        {"name": "bert-base-uncased", "display_name": "BERT Base"},
-        {"name": "ProsusAI/finbert", "display_name": "FinBERT (ProsusAI)"},
-        {"name": "nlpaueb/sec-bert-base", "display_name": "SEC-BERT (AUEB)"},
-        {"name": "roberta-base", "display_name": "RoBERTa Base"},
-    ])
+    models_config = benchmark_params.get(
+        "models",
+        [
+            {"name": "bert-base-uncased", "display_name": "BERT Base"},
+            {"name": "ProsusAI/finbert", "display_name": "FinBERT (ProsusAI)"},
+            {"name": "nlpaueb/sec-bert-base", "display_name": "SEC-BERT (AUEB)"},
+            {"name": "roberta-base", "display_name": "RoBERTa Base"},
+        ],
+    )
 
     epochs = benchmark_params.get("epochs", 5)
     learning_rate = benchmark_params.get("learning_rate", 5e-5)
@@ -187,7 +224,9 @@ def run_encoder_benchmark(
 
     print("\n========================================================")
     print(f"Starting Multi-Encoder Benchmark ({len(models_config)} models configured)")
-    print(f"Device: {device} | Train samples: {len(train_df)} | Test samples: {len(test_df)}")
+    print(
+        f"Device: {device} | Train samples: {len(train_df)} | Test samples: {len(test_df)}"
+    )
     print("========================================================\n")
 
     for model_entry in models_config:
@@ -231,7 +270,9 @@ def run_encoder_benchmark(
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-        criterion = SetCriterion(num_relation_classes=num_relations, num_entity_types=num_ent_types).to(device)
+        criterion = SetCriterion(
+            num_relation_classes=num_relations, num_entity_types=num_ent_types
+        ).to(device)
 
         train_ds = TensorDataset(
             train_tensors["input_ids"],
@@ -250,7 +291,9 @@ def run_encoder_benchmark(
         elif freeze_strategy == "partial":
             model.encoder.eval()
             encoder_layers = None
-            if hasattr(model.encoder, "encoder") and hasattr(model.encoder.encoder, "layer"):
+            if hasattr(model.encoder, "encoder") and hasattr(
+                model.encoder.encoder, "layer"
+            ):
                 encoder_layers = model.encoder.encoder.layer
             elif hasattr(model.encoder, "layer"):
                 encoder_layers = model.encoder.layer
@@ -264,12 +307,18 @@ def run_encoder_benchmark(
             if hasattr(torch, "compile"):
                 compile_mode = benchmark_params.get("compile_mode", "default")
                 try:
-                    print(f"Compiling {model_name} with torch.compile(mode='{compile_mode}')...")
+                    print(
+                        f"Compiling {model_name} with torch.compile(mode='{compile_mode}')..."
+                    )
                     model = torch.compile(model, mode=compile_mode)
                 except Exception as exc:
-                    print(f"Warning: torch.compile failed for {model_name} ({exc}). Proceeding uncompiled.")
+                    print(
+                        f"Warning: torch.compile failed for {model_name} ({exc}). Proceeding uncompiled."
+                    )
             else:
-                print("torch.compile is not available in this PyTorch version. Proceeding uncompiled.")
+                print(
+                    "torch.compile is not available in this PyTorch version. Proceeding uncompiled."
+                )
 
         start_train_time = time.perf_counter()
         for epoch in range(epochs):
@@ -283,13 +332,15 @@ def run_encoder_benchmark(
                 targets = []
                 for i in range(b_ids.size(0)):
                     valid_idx = b_rels[i] != no_relation_idx
-                    targets.append({
-                        "relations": b_rels[i][valid_idx],
-                        "subj_types": b_st[i][valid_idx],
-                        "obj_types": b_ot[i][valid_idx],
-                        "subj_spans": b_ss[i][valid_idx],
-                        "obj_spans": b_os[i][valid_idx],
-                    })
+                    targets.append(
+                        {
+                            "relations": b_rels[i][valid_idx],
+                            "subj_types": b_st[i][valid_idx],
+                            "obj_types": b_ot[i][valid_idx],
+                            "subj_spans": b_ss[i][valid_idx],
+                            "obj_spans": b_os[i][valid_idx],
+                        }
+                    )
 
                 loss_dict = criterion(outputs, targets)
                 loss = sum(loss_dict.values())
@@ -312,17 +363,19 @@ def run_encoder_benchmark(
             batch_size=batch_size,
         )
 
-        results.append({
-            "model_name": model_name,
-            "display_name": display_name,
-            "test_f1": round(f1, 4),
-            "test_precision": round(precision, 4),
-            "test_recall": round(recall, 4),
-            "latency_ms_per_doc": round(avg_latency, 2),
-            "train_sec_per_epoch": round(sec_per_epoch, 2),
-            "total_params_m": round(total_params / 1e6, 2),
-            "trainable_params_m": round(trainable_params / 1e6, 2),
-        })
+        results.append(
+            {
+                "model_name": model_name,
+                "display_name": display_name,
+                "test_f1": round(f1, 4),
+                "test_precision": round(precision, 4),
+                "test_recall": round(recall, 4),
+                "latency_ms_per_doc": round(avg_latency, 2),
+                "train_sec_per_epoch": round(sec_per_epoch, 2),
+                "total_params_m": round(total_params / 1e6, 2),
+                "trainable_params_m": round(trainable_params / 1e6, 2),
+            }
+        )
 
         print(
             f"Result for {display_name}: F1={f1:.4f} | Prec={precision:.4f} | Rec={recall:.4f} | "
@@ -330,7 +383,15 @@ def run_encoder_benchmark(
         )
 
         # Cleanup memory before next encoder
-        del model, optimizer, criterion, train_ds, train_loader, train_tensors, test_tensors
+        del (
+            model,
+            optimizer,
+            criterion,
+            train_ds,
+            train_loader,
+            train_tensors,
+            test_tensors,
+        )
         if str(device) == "cuda":
             torch.cuda.empty_cache()
         elif str(device) == "mps":

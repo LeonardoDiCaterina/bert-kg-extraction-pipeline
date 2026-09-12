@@ -5,7 +5,10 @@ from bert_kg_mvp.utils.splitting import extract_company_identifier, split_by_com
 
 def test_extract_company_identifier():
     assert extract_company_identifier("AAPL_2025.pdf") == "AAPL"
-    assert extract_company_identifier("sec-edgar-filings/MSFT/10-K/0001/doc.html") == "MSFT"
+    assert (
+        extract_company_identifier("sec-edgar-filings/MSFT/10-K/0001/doc.html")
+        == "MSFT"
+    )
     assert extract_company_identifier("data/01_raw/NVDA-10K.txt") == "NVDA"
     assert extract_company_identifier("TSLA") == "TSLA"
 
@@ -13,17 +16,32 @@ def test_extract_company_identifier():
 def test_split_by_company_no_leakage():
     # Construct synthetic dataset with 10 companies
     rows = []
-    companies = ["AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "JPM", "WMT", "V"]
+    companies = [
+        "AAPL",
+        "MSFT",
+        "AMZN",
+        "NVDA",
+        "GOOGL",
+        "META",
+        "TSLA",
+        "JPM",
+        "WMT",
+        "V",
+    ]
     for comp in companies:
         for i in range(10):
-            rows.append({
-                "doc_id": f"{comp}_2025_{i}.pdf",
-                "text": f"Sample text for {comp}",
-                "triples": "[]"
-            })
+            rows.append(
+                {
+                    "doc_id": f"{comp}_2025_{i}.pdf",
+                    "text": f"Sample text for {comp}",
+                    "triples": "[]",
+                }
+            )
     df = pd.DataFrame(rows)
 
-    train_df, val_df, test_df = split_by_company(df, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15, seed=42)
+    train_df, val_df, test_df = split_by_company(
+        df, train_ratio=0.70, val_ratio=0.15, test_ratio=0.15, seed=42
+    )
 
     # 1. Total rows match
     assert len(train_df) + len(val_df) + len(test_df) == len(df)
@@ -49,11 +67,15 @@ def test_split_by_company_edge_cases():
     assert t.empty and v.empty and te.empty
 
     # Less than 3 companies fallback
-    df_small = pd.DataFrame([
-        {"doc_id": "AAPL_1.pdf", "text": "a"},
-        {"doc_id": "AAPL_2.pdf", "text": "b"},
-        {"doc_id": "MSFT_1.pdf", "text": "c"},
-        {"doc_id": "MSFT_2.pdf", "text": "d"},
-    ])
-    t_s, v_s, te_s = split_by_company(df_small, train_ratio=0.5, val_ratio=0.25, test_ratio=0.25)
+    df_small = pd.DataFrame(
+        [
+            {"doc_id": "AAPL_1.pdf", "text": "a"},
+            {"doc_id": "AAPL_2.pdf", "text": "b"},
+            {"doc_id": "MSFT_1.pdf", "text": "c"},
+            {"doc_id": "MSFT_2.pdf", "text": "d"},
+        ]
+    )
+    t_s, v_s, te_s = split_by_company(
+        df_small, train_ratio=0.5, val_ratio=0.25, test_ratio=0.25
+    )
     assert len(t_s) + len(v_s) + len(te_s) == 4

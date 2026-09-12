@@ -119,7 +119,9 @@ def format_schema_prompt(schema_params: Optional[Dict[str, Any]]) -> str:
         return DEFAULT_FIN_SCHEMA
 
     ent_str = ", ".join(e.upper() for e in entity_types)
-    rel_str = ", ".join(r.replace("_", " ").title().replace(" ", "_") for r in relation_types)
+    rel_str = ", ".join(
+        r.replace("_", " ").title().replace(" ", "_") for r in relation_types
+    )
 
     return f"\nEntity Types: {ent_str}.\nRelationship Types: {rel_str}.\n"
 
@@ -158,9 +160,15 @@ def _load_checkpoint(path: Path, expected_len: int) -> Optional[List[str]]:
     for candidate in candidates:
         if candidate.exists():
             try:
-                df = pd.read_parquet(candidate) if candidate.suffix == ".parquet" else pd.read_csv(candidate)
+                df = (
+                    pd.read_parquet(candidate)
+                    if candidate.suffix == ".parquet"
+                    else pd.read_csv(candidate)
+                )
                 if "output" in df.columns and len(df) == expected_len:
-                    print(f"[Teacher Pipeline] Resumed from checkpoint: {candidate} ({len(df)} rows)")
+                    print(
+                        f"[Teacher Pipeline] Resumed from checkpoint: {candidate} ({len(df)} rows)"
+                    )
                     return df["output"].fillna("").astype(str).tolist()
                 elif len(df) != expected_len:
                     print(
@@ -168,7 +176,9 @@ def _load_checkpoint(path: Path, expected_len: int) -> Optional[List[str]]:
                         f"current input length ({expected_len}). Skipping."
                     )
             except Exception as e:
-                print(f"[Teacher Pipeline] Notice: Failed to load checkpoint {candidate}: {e}")
+                print(
+                    f"[Teacher Pipeline] Notice: Failed to load checkpoint {candidate}: {e}"
+                )
     return None
 
 
@@ -212,26 +222,33 @@ def generate_teacher_triplets(
     if max_samples is not None and 0 < int(max_samples) < len(parsed_chunks):
         target_n = int(max_samples)
         sample_random_state = params.get("sample_random_state", 42)
-        print(f"[Teacher Pipeline] Subsampling {target_n} chunks (from {len(parsed_chunks)} total) for teacher distillation...")
+        print(
+            f"[Teacher Pipeline] Subsampling {target_n} chunks (from {len(parsed_chunks)} total) for teacher distillation..."
+        )
         if "ticker" in parsed_chunks.columns and parsed_chunks["ticker"].nunique() > 1:
-            sampled = (
-                parsed_chunks.groupby("ticker", group_keys=False)
-                .apply(
-                    lambda g: g.sample(
-                        min(len(g), max(1, int(round(len(g) * target_n / len(parsed_chunks))))),
-                        random_state=sample_random_state,
-                    )
+            sampled = parsed_chunks.groupby("ticker", group_keys=False).apply(
+                lambda g: g.sample(
+                    min(
+                        len(g),
+                        max(1, int(round(len(g) * target_n / len(parsed_chunks)))),
+                    ),
+                    random_state=sample_random_state,
                 )
             )
             if len(sampled) > target_n:
                 sampled = sampled.head(target_n)
             elif len(sampled) < target_n:
                 remainder = parsed_chunks[~parsed_chunks.index.isin(sampled.index)]
-                fill = remainder.sample(min(len(remainder), target_n - len(sampled)), random_state=sample_random_state)
+                fill = remainder.sample(
+                    min(len(remainder), target_n - len(sampled)),
+                    random_state=sample_random_state,
+                )
                 sampled = pd.concat([sampled, fill], ignore_index=True)
             parsed_chunks = sampled.reset_index(drop=True)
         else:
-            parsed_chunks = parsed_chunks.sample(n=target_n, random_state=sample_random_state).reset_index(drop=True)
+            parsed_chunks = parsed_chunks.sample(
+                n=target_n, random_state=sample_random_state
+            ).reset_index(drop=True)
 
     # Checkpoint configuration
     checkpoint_dir_str = params.get("checkpoint_dir", "data/02_intermediate")
@@ -242,8 +259,14 @@ def generate_teacher_triplets(
     if batches_dir:
         batches_dir.mkdir(parents=True, exist_ok=True)
 
-    agent1_path = checkpoint_dir / "teacher_agent1_extractions.parquet" if checkpoint_dir else None
-    agent2_path = checkpoint_dir / "teacher_agent2_critiques.parquet" if checkpoint_dir else None
+    agent1_path = (
+        checkpoint_dir / "teacher_agent1_extractions.parquet"
+        if checkpoint_dir
+        else None
+    )
+    agent2_path = (
+        checkpoint_dir / "teacher_agent2_critiques.parquet" if checkpoint_dir else None
+    )
 
     # Prompt safety limits for Agent 3 (Refiner)
     max_ref_text_chars = params.get("max_refiner_text_chars", 4000)
@@ -252,7 +275,11 @@ def generate_teacher_triplets(
 
     # Micro-batching configuration: chunk dataset into streaming batches
     batch_size_param = params.get("batch_size", 500)
-    batch_size = int(batch_size_param) if (batch_size_param and int(batch_size_param) > 0) else len(parsed_chunks)
+    batch_size = (
+        int(batch_size_param)
+        if (batch_size_param and int(batch_size_param) > 0)
+        else len(parsed_chunks)
+    )
     num_batches = math.ceil(len(parsed_chunks) / max(1, batch_size))
 
     llm = None
@@ -270,7 +297,9 @@ def generate_teacher_triplets(
             if gpu_memory_utilization is not None:
                 llm_kwargs["gpu_memory_utilization"] = float(gpu_memory_utilization)
             llm = LLM(**llm_kwargs)
-            sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
+            sampling_params = SamplingParams(
+                temperature=temperature, max_tokens=max_tokens
+            )
         return llm, sampling_params
 
     all_batch_results: List[pd.DataFrame] = []
@@ -287,17 +316,29 @@ def generate_teacher_triplets(
             try:
                 cached_batch = pd.read_parquet(batch_file)
                 if len(cached_batch) == len(sub_chunks):
-                    print(f"[Teacher Pipeline] Loaded Batch {b_idx + 1}/{num_batches} ({len(cached_batch)} chunks) from cache.")
+                    print(
+                        f"[Teacher Pipeline] Loaded Batch {b_idx + 1}/{num_batches} ({len(cached_batch)} chunks) from cache."
+                    )
                     all_batch_results.append(cached_batch)
                     continue
             except Exception as exc:
-                print(f"[Teacher Pipeline] Notice: Could not read cached batch {batch_file}: {exc}")
+                print(
+                    f"[Teacher Pipeline] Notice: Could not read cached batch {batch_file}: {exc}"
+                )
 
         # Compute context and texts for current batch
-        sub_companies = [resolve_company_name(row["doc_id"], company_map=company_map) for _, row in sub_chunks.iterrows()]
-        sub_contexts = [_format_chunk_context(row, sub_companies[i]) for i, (_, row) in enumerate(sub_chunks.iterrows())]
+        sub_companies = [
+            resolve_company_name(row["doc_id"], company_map=company_map)
+            for _, row in sub_chunks.iterrows()
+        ]
+        sub_contexts = [
+            _format_chunk_context(row, sub_companies[i])
+            for i, (_, row) in enumerate(sub_chunks.iterrows())
+        ]
         sub_texts = [
-            str(row["text"])[:max_chunk_chars] if len(str(row["text"])) > max_chunk_chars else str(row["text"])
+            str(row["text"])[:max_chunk_chars]
+            if len(str(row["text"])) > max_chunk_chars
+            else str(row["text"])
             for _, row in sub_chunks.iterrows()
         ]
 
@@ -305,47 +346,63 @@ def generate_teacher_triplets(
         ext_outputs = None
         crit_outputs = None
         if num_batches == 1 and resume_checkpoints:
-            ext_outputs = _load_checkpoint(agent1_path, len(sub_chunks)) if agent1_path else None
-            crit_outputs = _load_checkpoint(agent2_path, len(sub_chunks)) if agent2_path else None
+            ext_outputs = (
+                _load_checkpoint(agent1_path, len(sub_chunks)) if agent1_path else None
+            )
+            crit_outputs = (
+                _load_checkpoint(agent2_path, len(sub_chunks)) if agent2_path else None
+            )
 
         # --- AGENT 1: EXTRACTOR ---
         if ext_outputs is None:
             engine, s_params = _get_llm()
-            print(f"Agent 1 (Extractor) [Batch {b_idx + 1}/{num_batches}]: Processing {len(sub_chunks)} chunks...")
+            print(
+                f"Agent 1 (Extractor) [Batch {b_idx + 1}/{num_batches}]: Processing {len(sub_chunks)} chunks..."
+            )
             ext_prompts = [
                 EXTRACTOR_PROMPT.format(
                     schema=schema_text,
                     context=sub_contexts[i],
                     company_name=sub_companies[i],
-                    text=sub_texts[i]
+                    text=sub_texts[i],
                 )
                 for i in range(len(sub_chunks))
             ]
-            ext_outputs = [r.outputs[0].text.strip() for r in engine.generate(ext_prompts, s_params)]
+            ext_outputs = [
+                r.outputs[0].text.strip()
+                for r in engine.generate(ext_prompts, s_params)
+            ]
             if num_batches == 1 and agent1_path:
                 _save_checkpoint(ext_outputs, agent1_path)
 
         # --- AGENT 2: CRITIC ---
         if crit_outputs is None:
             engine, s_params = _get_llm()
-            print(f"Agent 2 (Critic) [Batch {b_idx + 1}/{num_batches}]: Auditing {len(sub_chunks)} chunks...")
+            print(
+                f"Agent 2 (Critic) [Batch {b_idx + 1}/{num_batches}]: Auditing {len(sub_chunks)} chunks..."
+            )
             crit_prompts = [
                 CRITIC_PROMPT.format(
                     schema=schema_text,
                     context=sub_contexts[i],
                     company_name=sub_companies[i],
                     text=sub_texts[i],
-                    triples=ext_outputs[i]
+                    triples=ext_outputs[i],
                 )
                 for i in range(len(sub_chunks))
             ]
-            crit_outputs = [r.outputs[0].text.strip() for r in engine.generate(crit_prompts, s_params)]
+            crit_outputs = [
+                r.outputs[0].text.strip()
+                for r in engine.generate(crit_prompts, s_params)
+            ]
             if num_batches == 1 and agent2_path:
                 _save_checkpoint(crit_outputs, agent2_path)
 
         # --- AGENT 3: REFINER ---
         engine, s_params = _get_llm()
-        print(f"Agent 3 (Refiner) [Batch {b_idx + 1}/{num_batches}]: Generating final JSON...")
+        print(
+            f"Agent 3 (Refiner) [Batch {b_idx + 1}/{num_batches}]: Generating final JSON..."
+        )
         ref_prompts = [
             REFINER_PROMPT.format(
                 context=sub_contexts[i],
@@ -356,7 +413,9 @@ def generate_teacher_triplets(
             )
             for i in range(len(sub_chunks))
         ]
-        ref_outputs = [r.outputs[0].text.strip() for r in engine.generate(ref_prompts, s_params)]
+        ref_outputs = [
+            r.outputs[0].text.strip() for r in engine.generate(ref_prompts, s_params)
+        ]
 
         batch_extracted_data = []
         for i, raw_output in enumerate(ref_outputs):
@@ -366,15 +425,17 @@ def generate_teacher_triplets(
             except json.JSONDecodeError:
                 triples = []
 
-            batch_extracted_data.append({
-                "doc_id":   sub_chunks.iloc[i]["doc_id"],
-                "chunk_id": sub_chunks.iloc[i]["chunk_id"],
-                "ticker":   sub_chunks.iloc[i].get("ticker",  ""),
-                "year":     sub_chunks.iloc[i].get("year",    ""),
-                "section":  sub_chunks.iloc[i].get("section", ""),
-                "text":     sub_chunks.iloc[i]["text"],
-                "triples":  triples,
-            })
+            batch_extracted_data.append(
+                {
+                    "doc_id": sub_chunks.iloc[i]["doc_id"],
+                    "chunk_id": sub_chunks.iloc[i]["chunk_id"],
+                    "ticker": sub_chunks.iloc[i].get("ticker", ""),
+                    "year": sub_chunks.iloc[i].get("year", ""),
+                    "section": sub_chunks.iloc[i].get("section", ""),
+                    "text": sub_chunks.iloc[i]["text"],
+                    "triples": triples,
+                }
+            )
 
         batch_result_df = pd.DataFrame(batch_extracted_data)
         if batch_file:
@@ -388,13 +449,21 @@ def generate_teacher_triplets(
                 rolling_df = pd.concat(all_batch_results, ignore_index=True)
                 partial_path = checkpoint_dir / "teacher_extracted_triplets_partial.csv"
                 rolling_df.to_csv(partial_path, index=False)
-                tot_triples = sum(len(row.get("triples", [])) for _, row in rolling_df.iterrows())
+                tot_triples = sum(
+                    len(row.get("triples", [])) for _, row in rolling_df.iterrows()
+                )
                 print(
                     f"[Teacher Pipeline] Progress: Batch {b_idx + 1}/{num_batches} persisted to disk "
                     f"({len(rolling_df)} cumulative chunks, {tot_triples} triples extracted)."
                 )
             except Exception as exc:
-                print(f"[Teacher Pipeline] Notice: Could not write rolling progress: {exc}")
+                print(
+                    f"[Teacher Pipeline] Notice: Could not write rolling progress: {exc}"
+                )
 
-    final_df = pd.concat(all_batch_results, ignore_index=True) if all_batch_results else pd.DataFrame()
+    final_df = (
+        pd.concat(all_batch_results, ignore_index=True)
+        if all_batch_results
+        else pd.DataFrame()
+    )
     return final_df

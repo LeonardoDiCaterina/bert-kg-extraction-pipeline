@@ -24,11 +24,15 @@ def visualize_triplets(triplets: Set[Tuple[str, str, str]]) -> None:
     pos = nx.spring_layout(G, k=1.0)
 
     nx.draw_networkx_nodes(G, pos, node_color="#87CEFA", node_size=3000, alpha=0.9)
-    nx.draw_networkx_edges(G, pos, arrowstyle="->", arrowsize=20, edge_color="gray", width=2)
+    nx.draw_networkx_edges(
+        G, pos, arrowstyle="->", arrowsize=20, edge_color="gray", width=2
+    )
     nx.draw_networkx_labels(G, pos, font_size=10, font_weight="bold")
 
     edge_labels = nx.get_edge_attributes(G, "label")
-    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=9, font_color="red")
+    nx.draw_networkx_edge_labels(
+        G, pos, edge_labels=edge_labels, font_size=9, font_color="red"
+    )
 
     plt.title("Extracted Knowledge Graph", pad=20)
     plt.axis("off")
@@ -47,5 +51,9 @@ def parse_and_visualize(input_data: Union[str, Set[Tuple[str, str, str]]]) -> No
 
 
 if __name__ == "__main__":
-    sample_model_output = sys.argv[1] if len(sys.argv) > 1 else "<triplet> space x <subj_type> entity <relation> located in <obj> california <obj_type> entity"
+    sample_model_output = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else "<triplet> space x <subj_type> entity <relation> located in <obj> california <obj_type> entity"
+    )
     parse_and_visualize(sample_model_output)

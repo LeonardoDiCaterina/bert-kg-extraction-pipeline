@@ -10,13 +10,17 @@ from bert_kg_mvp.pipelines.benchmark.nodes import (
 
 
 def test_split_dataset_node():
-    data = pd.DataFrame([
-        {"doc_id": "AAPL_1.pdf", "text": "text 1", "triples": "[]"},
-        {"doc_id": "AAPL_2.pdf", "text": "text 2", "triples": "[]"},
-        {"doc_id": "MSFT_1.pdf", "text": "text 3", "triples": "[]"},
-        {"doc_id": "NVDA_1.pdf", "text": "text 4", "triples": "[]"},
-    ])
-    splits = split_dataset_node(data, split_params={"strategy": "company_stratified", "random_seed": 42})
+    data = pd.DataFrame(
+        [
+            {"doc_id": "AAPL_1.pdf", "text": "text 1", "triples": "[]"},
+            {"doc_id": "AAPL_2.pdf", "text": "text 2", "triples": "[]"},
+            {"doc_id": "MSFT_1.pdf", "text": "text 3", "triples": "[]"},
+            {"doc_id": "NVDA_1.pdf", "text": "text 4", "triples": "[]"},
+        ]
+    )
+    splits = split_dataset_node(
+        data, split_params={"strategy": "company_stratified", "random_seed": 42}
+    )
     assert "train" in splits
     assert "val" in splits
     assert "test" in splits
@@ -76,14 +80,20 @@ def test_run_encoder_benchmark_mock(mock_model_cls, mock_prep_data):
         MagicMock(),
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
 
     mock_instance = MagicMock()
     mock_param = torch.nn.Parameter(torch.zeros(2, 2, device=device))
     mock_instance.parameters.return_value = [mock_param]
     mock_instance.to.return_value = mock_instance
     mock_instance.side_effect = lambda ids, mask: {
-        "rel_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device, requires_grad=True),
+        "rel_logits": torch.zeros(
+            (ids.size(0), 2, 6), device=ids.device, requires_grad=True
+        ),
         "subj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
         "subj_end_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
         "obj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),

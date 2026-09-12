@@ -2,15 +2,31 @@ import torch
 from bert_kg_mvp.models.bipartite_loss import SetCriterion
 
 
-def make_dummy_outputs(batch_size=2, num_queries=5, seq_len=16, num_relations=3, num_entity_types=4):
+def make_dummy_outputs(
+    batch_size=2, num_queries=5, seq_len=16, num_relations=3, num_entity_types=4
+):
     return {
-        "rel_logits": torch.randn(batch_size, num_queries, num_relations + 1, requires_grad=True),
-        "subj_type_logits": torch.randn(batch_size, num_queries, num_entity_types, requires_grad=True),
-        "obj_type_logits": torch.randn(batch_size, num_queries, num_entity_types, requires_grad=True),
-        "subj_start_logits": torch.randn(batch_size, num_queries, seq_len, requires_grad=True),
-        "subj_end_logits": torch.randn(batch_size, num_queries, seq_len, requires_grad=True),
-        "obj_start_logits": torch.randn(batch_size, num_queries, seq_len, requires_grad=True),
-        "obj_end_logits": torch.randn(batch_size, num_queries, seq_len, requires_grad=True),
+        "rel_logits": torch.randn(
+            batch_size, num_queries, num_relations + 1, requires_grad=True
+        ),
+        "subj_type_logits": torch.randn(
+            batch_size, num_queries, num_entity_types, requires_grad=True
+        ),
+        "obj_type_logits": torch.randn(
+            batch_size, num_queries, num_entity_types, requires_grad=True
+        ),
+        "subj_start_logits": torch.randn(
+            batch_size, num_queries, seq_len, requires_grad=True
+        ),
+        "subj_end_logits": torch.randn(
+            batch_size, num_queries, seq_len, requires_grad=True
+        ),
+        "obj_start_logits": torch.randn(
+            batch_size, num_queries, seq_len, requires_grad=True
+        ),
+        "obj_end_logits": torch.randn(
+            batch_size, num_queries, seq_len, requires_grad=True
+        ),
     }
 
 
@@ -40,7 +56,7 @@ def test_set_criterion_forward_with_targets():
             "obj_types": torch.tensor([0], dtype=torch.int64),
             "subj_spans": torch.tensor([[0, 2]], dtype=torch.int64),
             "obj_spans": torch.tensor([[3, 5]], dtype=torch.int64),
-        }
+        },
     ]
 
     losses = criterion(outputs, targets)
@@ -72,7 +88,7 @@ def test_set_criterion_empty_targets():
             "obj_types": torch.tensor([], dtype=torch.int64),
             "subj_spans": torch.empty((0, 2), dtype=torch.int64),
             "obj_spans": torch.empty((0, 2), dtype=torch.int64),
-        }
+        },
     ]
 
     losses = criterion(outputs, targets)

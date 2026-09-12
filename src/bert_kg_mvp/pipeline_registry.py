@@ -2,6 +2,7 @@ from typing import Dict
 from kedro.pipeline import Pipeline
 from bert_kg_mvp.pipelines import benchmark, data_prep, inference, training
 
+
 def register_pipelines() -> Dict[str, Pipeline]:
     data_prep_pipeline = data_prep.create_pipeline()
     inference_pipeline = inference.create_pipeline()
@@ -15,4 +16,3 @@ def register_pipelines() -> Dict[str, Pipeline]:
         "inference": inference_pipeline,
         "benchmark": benchmark_pipeline,
     }
-

@@ -20,7 +20,11 @@ def run_mvp_inference(
     Runs set-prediction inference and evaluates Precision, Recall, and F1 score against ground truth.
     Supports either namespaced params (`params:inference` + `params:schema`) or a legacy single dict.
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
     if str(device) == "mps":
         torch.mps.empty_cache()
     gc.collect()
@@ -31,7 +35,10 @@ def run_mvp_inference(
     # Dynamic schema handling
     if schema_params is None:
         schema_params = inference_params.get("schema", {})
-    relation_types = schema_params.get("relation_types", ["has_metric", "produces", "operates_in", "reports_risk", "led_by"])
+    relation_types = schema_params.get(
+        "relation_types",
+        ["has_metric", "produces", "operates_in", "reports_risk", "led_by"],
+    )
     no_relation_idx = len(relation_types)
 
     # Dynamic parameterization
@@ -48,14 +55,16 @@ def run_mvp_inference(
     gt_subj_spans = processed_dataset["subj_spans"][-sample_size:]
     gt_obj_spans = processed_dataset["obj_spans"][-sample_size:]
 
-    print(f"Generating predictions for {sample_size} validation samples (Batch size: {batch_size})...")
+    print(
+        f"Generating predictions for {sample_size} validation samples (Batch size: {batch_size})..."
+    )
 
     true_positives, false_positives, false_negatives = 0, 0, 0
 
     with torch.no_grad():
         for i in range(0, sample_size, batch_size):
-            input_ids = input_ids_full[i:i + batch_size].to(device)
-            attention_mask = attention_mask_full[i:i + batch_size].to(device)
+            input_ids = input_ids_full[i : i + batch_size].to(device)
+            attention_mask = attention_mask_full[i : i + batch_size].to(device)
 
             if input_ids.size(0) == 0:
                 continue
@@ -73,22 +82,42 @@ def run_mvp_inference(
                 true_set = set()
 
                 valid_gt = gt_rels[i + b] != no_relation_idx
-                for r, ss, os in zip(gt_rels[i + b][valid_gt], gt_subj_spans[i + b][valid_gt], gt_obj_spans[i + b][valid_gt]):
-                    subj_str = tokenizer.decode(input_ids[b, ss[0]:ss[1] + 1], skip_special_tokens=True).strip()
-                    obj_str = tokenizer.decode(input_ids[b, os[0]:os[1] + 1], skip_special_tokens=True).strip()
+                for r, ss, os in zip(
+                    gt_rels[i + b][valid_gt],
+                    gt_subj_spans[i + b][valid_gt],
+                    gt_obj_spans[i + b][valid_gt],
+                ):
+                    subj_str = tokenizer.decode(
+                        input_ids[b, ss[0] : ss[1] + 1], skip_special_tokens=True
+                    ).strip()
+                    obj_str = tokenizer.decode(
+                        input_ids[b, os[0] : os[1] + 1], skip_special_tokens=True
+                    ).strip()
                     true_set.add((subj_str, r.item(), obj_str))
 
                 num_queries = outputs["rel_logits"].shape[1]
                 for q in range(num_queries):
                     rel = rel_preds[b, q].item()
                     if rel != no_relation_idx:
-                        s_start = min(subj_start_preds[b, q].item(), subj_end_preds[b, q].item())
-                        s_end = max(subj_start_preds[b, q].item(), subj_end_preds[b, q].item())
-                        o_start = min(obj_start_preds[b, q].item(), obj_end_preds[b, q].item())
-                        o_end = max(obj_start_preds[b, q].item(), obj_end_preds[b, q].item())
+                        s_start = min(
+                            subj_start_preds[b, q].item(), subj_end_preds[b, q].item()
+                        )
+                        s_end = max(
+                            subj_start_preds[b, q].item(), subj_end_preds[b, q].item()
+                        )
+                        o_start = min(
+                            obj_start_preds[b, q].item(), obj_end_preds[b, q].item()
+                        )
+                        o_end = max(
+                            obj_start_preds[b, q].item(), obj_end_preds[b, q].item()
+                        )
 
-                        pred_subj = tokenizer.decode(input_ids[b, s_start:s_end + 1], skip_special_tokens=True).strip()
-                        pred_obj = tokenizer.decode(input_ids[b, o_start:o_end + 1], skip_special_tokens=True).strip()
+                        pred_subj = tokenizer.decode(
+                            input_ids[b, s_start : s_end + 1], skip_special_tokens=True
+                        ).strip()
+                        pred_obj = tokenizer.decode(
+                            input_ids[b, o_start : o_end + 1], skip_special_tokens=True
+                        ).strip()
 
                         if pred_subj and pred_obj:
                             pred_set.add((pred_subj, rel, pred_obj))

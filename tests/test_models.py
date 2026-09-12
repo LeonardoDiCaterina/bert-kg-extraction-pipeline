@@ -1,8 +1,14 @@
 import torch
 import torch.nn as nn
 from unittest.mock import MagicMock, patch
-from bert_kg_mvp.models.architecture import PositionalEncoding as PosEnc1, BERTToKnowledgeGraph
-from bert_kg_mvp.models.architecture_2 import PositionalEncoding as PosEnc2, DynamicKGExtractor
+from bert_kg_mvp.models.architecture import (
+    PositionalEncoding as PosEnc1,
+    BERTToKnowledgeGraph,
+)
+from bert_kg_mvp.models.architecture_2 import (
+    PositionalEncoding as PosEnc2,
+    DynamicKGExtractor,
+)
 from bert_kg_mvp.models.logits_processor import KGSchemaLogitsProcessor
 
 
@@ -37,7 +43,7 @@ def test_kg_schema_logits_processor():
     processor = KGSchemaLogitsProcessor(
         tokenizer=mock_tokenizer,
         valid_types=["ORG", "LOC"],
-        valid_relations=["ACQUIRED", "SUBSIDIARY_OF"]
+        valid_relations=["ACQUIRED", "SUBSIDIARY_OF"],
     )
 
     # Batch of size 3 with different pipe counts:
@@ -84,9 +90,9 @@ class DummyEncoder(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.encoder = nn.Module()
-        self.encoder.layer = nn.ModuleList([
-            nn.Linear(d_model, d_model) for _ in range(num_layers)
-        ])
+        self.encoder.layer = nn.ModuleList(
+            [nn.Linear(d_model, d_model) for _ in range(num_layers)]
+        )
         self.embedding = nn.Embedding(100, d_model)
 
     def forward(self, input_ids, attention_mask=None):
@@ -118,10 +124,7 @@ def test_dynamic_kg_extractor_freezing_strategies(mock_from_pretrained):
     dummy_enc_partial = DummyEncoder(d_model=64, num_layers=4)
     mock_from_pretrained.return_value = dummy_enc_partial
     model_partial = DynamicKGExtractor(
-        d_model=64,
-        freeze_strategy="partial",
-        unfrozen_top_layers=2,
-        num_queries=5
+        d_model=64, freeze_strategy="partial", unfrozen_top_layers=2, num_queries=5
     )
     # First 2 layers frozen, last 2 unfrozen
     for p in model_partial.encoder.encoder.layer[0].parameters():
@@ -133,9 +136,7 @@ def test_dynamic_kg_extractor_freezing_strategies(mock_from_pretrained):
     dummy_enc_no_layers = nn.Linear(64, 64)
     mock_from_pretrained.return_value = dummy_enc_no_layers
     model_fallback = DynamicKGExtractor(
-        d_model=64,
-        freeze_strategy="partial",
-        num_queries=5
+        d_model=64, freeze_strategy="partial", num_queries=5
     )
     for p in model_fallback.encoder.parameters():
         assert not p.requires_grad
@@ -147,11 +148,7 @@ def test_dynamic_kg_extractor_forward(mock_from_pretrained):
     mock_from_pretrained.return_value = dummy_enc
 
     model = DynamicKGExtractor(
-        d_model=64,
-        num_layers=2,
-        num_queries=6,
-        num_relations=4,
-        num_ent_types=5
+        d_model=64, num_layers=2, num_queries=6, num_relations=4, num_ent_types=5
     )
 
     bs, seq_len = 2, 10
@@ -160,7 +157,7 @@ def test_dynamic_kg_extractor_forward(mock_from_pretrained):
 
     outputs = model(input_ids, attention_mask)
 
-    assert outputs["rel_logits"].shape == (bs, 6, 5) # num_relations + 1
+    assert outputs["rel_logits"].shape == (bs, 6, 5)  # num_relations + 1
     assert outputs["subj_type_logits"].shape == (bs, 6, 5)
     assert outputs["obj_type_logits"].shape == (bs, 6, 5)
     assert outputs["subj_start_logits"].shape == (bs, 6, seq_len)

@@ -17,16 +17,29 @@ def predict_triplets(text: str) -> Set[Tuple[str, str, str]]:
         model = context.catalog.load("trained_model")
         params = context.params
 
-    device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
     model.to(device)
     model.eval()
 
     schema = params.get("schema", {})
-    relation_types = schema.get("relation_types", ["has_metric", "produces", "operates_in", "reports_risk", "led_by"])
+    relation_types = schema.get(
+        "relation_types",
+        ["has_metric", "produces", "operates_in", "reports_risk", "led_by"],
+    )
     no_relation_idx = len(relation_types)
 
     max_len = params.get("training", {}).get("max_seq_len", 128)
-    encodings = tokenizer([text], padding="max_length", max_length=max_len, truncation=True, return_tensors="pt")
+    encodings = tokenizer(
+        [text],
+        padding="max_length",
+        max_length=max_len,
+        truncation=True,
+        return_tensors="pt",
+    )
     input_ids = encodings["input_ids"].to(device)
     attention_mask = encodings["attention_mask"].to(device)
 
@@ -50,8 +63,12 @@ def predict_triplets(text: str) -> Set[Tuple[str, str, str]]:
                 o_s = min(obj_start[q].item(), obj_end[q].item())
                 o_e = max(obj_start[q].item(), obj_end[q].item())
 
-                subj_str = tokenizer.decode(input_ids[0, s_s:s_e + 1], skip_special_tokens=True).strip()
-                obj_str = tokenizer.decode(input_ids[0, o_s:o_e + 1], skip_special_tokens=True).strip()
+                subj_str = tokenizer.decode(
+                    input_ids[0, s_s : s_e + 1], skip_special_tokens=True
+                ).strip()
+                obj_str = tokenizer.decode(
+                    input_ids[0, o_s : o_e + 1], skip_special_tokens=True
+                ).strip()
                 if subj_str and obj_str:
                     triplets.add((subj_str, rel_name, obj_str))
 
@@ -65,5 +82,9 @@ def predict_triplets(text: str) -> Set[Tuple[str, str, str]]:
 
 
 if __name__ == "__main__":
-    test_text = sys.argv[1] if len(sys.argv) > 1 else "Elon Musk founded SpaceX. SpaceX is located in California."
+    test_text = (
+        sys.argv[1]
+        if len(sys.argv) > 1
+        else "Elon Musk founded SpaceX. SpaceX is located in California."
+    )
     predict_triplets(test_text)

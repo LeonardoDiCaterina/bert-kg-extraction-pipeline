@@ -18,7 +18,9 @@ def test_is_informative_chunk():
     assert not is_informative_chunk("Short snippet of text.")
 
     # High checkbox / administrative ratio
-    checkbox_text = "Item 1. " + ("words " * 60) + "indicate by check mark if registrant is..."
+    checkbox_text = (
+        "Item 1. " + ("words " * 60) + "indicate by check mark if registrant is..."
+    )
     assert not is_informative_chunk(checkbox_text)
 
     # Valid informative chunk
@@ -36,7 +38,7 @@ def test_prepare_training_data():
     sample_data = {
         "text": [
             "Apple Inc. produces iPhone in California. Tim Cook leads Apple Inc.",
-            "Microsoft Corporation acquired LinkedIn for $26 billion."
+            "Microsoft Corporation acquired LinkedIn for $26 billion.",
         ],
         "triples": [
             [
@@ -45,15 +47,15 @@ def test_prepare_training_data():
                     "head_type": "ORG",
                     "relation": "Produces",
                     "tail": "iPhone",
-                    "tail_type": "PRODUCT"
+                    "tail_type": "PRODUCT",
                 },
                 {
                     "head": "Apple Inc.",
                     "head_type": "ORG",
                     "relation": "Led_By",
                     "tail": "Tim Cook",
-                    "tail_type": "PERSON"
-                }
+                    "tail_type": "PERSON",
+                },
             ],
             [
                 {
@@ -61,17 +63,17 @@ def test_prepare_training_data():
                     "head_type": "ORG",
                     "relation": "Operates_In",
                     "tail": "LinkedIn",
-                    "tail_type": "ORG"
+                    "tail_type": "ORG",
                 }
-            ]
-        ]
+            ],
+        ],
     }
     df = pd.DataFrame(sample_data)
 
     params = {
         "encoder_model_name": "bert-base-uncased",
         "max_seq_length": 64,
-        "max_gt_triples": 5
+        "max_gt_triples": 5,
     }
 
     dataset, tokenizer = prepare_training_data(df, params)
@@ -93,7 +95,10 @@ def test_prepare_training_data():
     # Test namespaced call signature
     data_prep_p = {"max_seq_length": 64, "max_gt_triples": 3, "max_samples": 10}
     training_p = {"encoder_model_name": "bert-base-uncased"}
-    schema_p = {"entity_types": ["org", "product", "person"], "relation_types": ["produces", "led_by"]}
+    schema_p = {
+        "entity_types": ["org", "product", "person"],
+        "relation_types": ["produces", "led_by"],
+    }
     ds2, tok2 = prepare_training_data(df, data_prep_p, training_p, schema_p)
     assert len(ds2["input_ids"]) >= 1
     assert ds2["relations"].shape[1] == 3
@@ -115,7 +120,10 @@ def test_parse_sec_filings_mocked():
         item1 = MagicMock()
         item1.text = "Item 1. Business Overview"
         item2 = MagicMock()
-        item2.text = ("Apple designs iPhones and personal computers across multiple regions. " * 15)
+        item2.text = (
+            "Apple designs iPhones and personal computers across multiple regions. "
+            * 15
+        )
         item3 = MagicMock()
         item3.text = "Item 9. Controls and Procedures"
 
@@ -133,7 +141,10 @@ def test_parse_sec_filings_mocked():
 
         MockConverterClass = MagicMock(return_value=mock_converter_instance)
 
-        with patch("bert_kg_mvp.pipelines.data_prep.nodes.DocumentConverter", MockConverterClass):
+        with patch(
+            "bert_kg_mvp.pipelines.data_prep.nodes.DocumentConverter",
+            MockConverterClass,
+        ):
             # Positional string argument
             df = parse_sec_filings(tmp_dir, max_words=50)
             assert isinstance(df, pd.DataFrame)
@@ -171,21 +182,21 @@ def test_ensure_provenance_metadata_auto_healing():
     from bert_kg_mvp.pipelines.data_prep.nodes import _ensure_provenance_metadata
 
     # Simulate raw legacy teacher output without ticker/year/section
-    raw_df = pd.DataFrame({
-        "chunk_id": [0, 1],
-        "doc_id": [
-            "sec-edgar-filings/AAPL/10-K/0000320193-24-000106/full-submission.txt",
-            "sec-edgar-filings/NVDA/10-K/0001045810-25-000012/full-submission.txt",
-        ],
-        "text": [
-            "Item 1. Business. Apple Inc. designs hardware.",
-            "Item 7. MD&A. NVIDIA reports GPU revenue.",
-        ],
-    })
+    raw_df = pd.DataFrame(
+        {
+            "chunk_id": [0, 1],
+            "doc_id": [
+                "sec-edgar-filings/AAPL/10-K/0000320193-24-000106/full-submission.txt",
+                "sec-edgar-filings/NVDA/10-K/0001045810-25-000012/full-submission.txt",
+            ],
+            "text": [
+                "Item 1. Business. Apple Inc. designs hardware.",
+                "Item 7. MD&A. NVIDIA reports GPU revenue.",
+            ],
+        }
+    )
 
     enriched = _ensure_provenance_metadata(raw_df, {})
     assert enriched["ticker"].tolist() == ["AAPL", "NVDA"]
     assert enriched["year"].tolist() == ["2024", "2025"]
     assert enriched["section"].tolist() == ["Item 1 – Business", "Item 7 – MD&A"]
-
-

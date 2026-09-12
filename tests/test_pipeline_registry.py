@@ -13,4 +13,3 @@ def test_register_pipelines():
 
     for name, pipe in pipelines.items():
         assert isinstance(pipe, Pipeline)
-

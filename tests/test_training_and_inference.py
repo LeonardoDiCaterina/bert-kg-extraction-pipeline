@@ -7,9 +7,13 @@ from bert_kg_mvp.pipelines.inference.nodes import (
     parse_triplet_string,
     run_mvp_inference,
 )
-from bert_kg_mvp.pipelines.inference.pipeline import create_pipeline as create_inference_pipeline
+from bert_kg_mvp.pipelines.inference.pipeline import (
+    create_pipeline as create_inference_pipeline,
+)
 from bert_kg_mvp.pipelines.training.nodes import train_model
-from bert_kg_mvp.pipelines.training.pipeline import create_pipeline as create_training_pipeline
+from bert_kg_mvp.pipelines.training.pipeline import (
+    create_pipeline as create_training_pipeline,
+)
 
 
 def test_parse_triplet_string():
@@ -27,7 +31,9 @@ def test_parse_triplet_string():
 
 
 class MockExtractor(nn.Module):
-    def __init__(self, num_queries=3, seq_len=8, num_relations=5, num_ent_types=7, **kwargs):
+    def __init__(
+        self, num_queries=3, seq_len=8, num_relations=5, num_ent_types=7, **kwargs
+    ):
         super().__init__()
         self.num_queries = num_queries
         self.seq_len = seq_len
@@ -42,13 +48,34 @@ class MockExtractor(nn.Module):
         bs = input_ids.size(0)
         dev = input_ids.device
         return {
-            "rel_logits": torch.randn(bs, self.num_queries, self.num_relations + 1, device=dev) * self.dummy_param,
-            "subj_type_logits": torch.randn(bs, self.num_queries, self.num_ent_types, device=dev) * self.dummy_param,
-            "obj_type_logits": torch.randn(bs, self.num_queries, self.num_ent_types, device=dev) * self.dummy_param,
-            "subj_start_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
-            "subj_end_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
-            "obj_start_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
-            "obj_end_logits": torch.randn(bs, self.num_queries, self.seq_len, device=dev) * self.dummy_param,
+            "rel_logits": torch.randn(
+                bs, self.num_queries, self.num_relations + 1, device=dev
+            )
+            * self.dummy_param,
+            "subj_type_logits": torch.randn(
+                bs, self.num_queries, self.num_ent_types, device=dev
+            )
+            * self.dummy_param,
+            "obj_type_logits": torch.randn(
+                bs, self.num_queries, self.num_ent_types, device=dev
+            )
+            * self.dummy_param,
+            "subj_start_logits": torch.randn(
+                bs, self.num_queries, self.seq_len, device=dev
+            )
+            * self.dummy_param,
+            "subj_end_logits": torch.randn(
+                bs, self.num_queries, self.seq_len, device=dev
+            )
+            * self.dummy_param,
+            "obj_start_logits": torch.randn(
+                bs, self.num_queries, self.seq_len, device=dev
+            )
+            * self.dummy_param,
+            "obj_end_logits": torch.randn(
+                bs, self.num_queries, self.seq_len, device=dev
+            )
+            * self.dummy_param,
         }
 
 
@@ -172,4 +199,3 @@ def test_pipeline_definitions():
 
     inference_pipe = create_inference_pipeline()
     assert "run_inference_node" in [n.name for n in inference_pipe.nodes]
-

@@ -19,7 +19,9 @@ def test_is_informative_chunk():
     # Boilerplate check mark phrase
     assert not is_informative_chunk("Word " * 60 + "Indicate by check mark if...")
     # Legitimate chunk
-    assert is_informative_chunk("Word " * 60 + "Apple Inc. designs semiconductors and operating systems.")
+    assert is_informative_chunk(
+        "Word " * 60 + "Apple Inc. designs semiconductors and operating systems."
+    )
 
 
 def test_extract_rebel_triplets():
@@ -41,7 +43,7 @@ def test_parse_triplet_string():
 
 
 def test_clean_json_string():
-    raw_json = "```json\n[{\"head\": \"A\", \"tail\": \"B\"}]\n```"
+    raw_json = '```json\n[{"head": "A", "tail": "B"}]\n```'
     assert clean_json_string(raw_json) == '[{"head": "A", "tail": "B"}]'
 
     raw_generic = "```\n[1, 2, 3]\n```"
@@ -56,7 +58,7 @@ def test_align_entities_to_tokens():
     mock_tokenizer.encode.side_effect = lambda s, add_special_tokens=False: {
         "apple": [101, 102],
         "nonexistent": [999],
-        "": []
+        "": [],
     }.get(s, [500])
 
     input_ids = torch.tensor([1, 2, 101, 102, 3, 4])
@@ -65,7 +67,9 @@ def test_align_entities_to_tokens():
     assert end == 3
 
     # Non-existent entity
-    s_miss, e_miss = align_entities_to_tokens("text", "nonexistent", mock_tokenizer, input_ids)
+    s_miss, e_miss = align_entities_to_tokens(
+        "text", "nonexistent", mock_tokenizer, input_ids
+    )
     assert s_miss == -1
     assert e_miss == -1
 
@@ -101,9 +105,18 @@ def test_resolve_company_name():
 def test_infer_section_label():
     assert infer_section_label("Item 1. Business") == "Item 1 – Business"
     assert infer_section_label("Item 1A. Risk Factors") == "Item 1A – Risk Factors"
-    assert infer_section_label("ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS") == "Item 7 – MD&A"
-    assert infer_section_label("Item 7A. Quantitative Disclosures") == "Item 7A – Market Risk"
-    assert infer_section_label("Item 8. Financial Statements") == "Item 8 – Financial Statements"
+    assert (
+        infer_section_label("ITEM 7. MANAGEMENT'S DISCUSSION AND ANALYSIS")
+        == "Item 7 – MD&A"
+    )
+    assert (
+        infer_section_label("Item 7A. Quantitative Disclosures")
+        == "Item 7A – Market Risk"
+    )
+    assert (
+        infer_section_label("Item 8. Financial Statements")
+        == "Item 8 – Financial Statements"
+    )
     assert infer_section_label("Item 9B. Other Information") == "Unknown"
     assert infer_section_label("Just random text") == "Unknown"
 
@@ -124,4 +137,3 @@ def test_parse_doc_metadata():
     # Without year or ticker
     meta3 = parse_doc_metadata("unknown_document.txt")
     assert meta3["year"] == ""
-
