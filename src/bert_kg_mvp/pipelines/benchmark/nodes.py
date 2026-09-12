@@ -384,10 +384,9 @@ def run_encoder_benchmark(
             avg_total = total_loss / len(train_loader)
             avg_losses = {k: v / len(train_loader) for k, v in epoch_losses.items()}
             
-            # Print last epoch or every 50 epochs to not flood terminal
-            if (epoch + 1) % 50 == 0 or epoch == epochs - 1:
-                avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
-                print(f"  Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f} | {avg_components}")
+            # Print at every epoch
+            avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
+            print(f"  Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f} | {avg_components}")
                 
             history_record = {"epoch": epoch + 1, "total_loss": avg_total}
             history_record.update(avg_losses)
