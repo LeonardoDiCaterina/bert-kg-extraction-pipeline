@@ -353,8 +353,12 @@ def run_encoder_benchmark(
     print("========================================================\n")
 
     for model_entry in models_config:
-        model_name = model_entry.get("name")
-        display_name = model_entry.get("display_name", model_name)
+        if isinstance(model_entry, str):
+            model_name = model_entry
+            display_name = model_entry
+        else:
+            model_name = model_entry.get("name")
+            display_name = model_entry.get("display_name", model_name)
 
         print(f"\n>>> Benchmarking Encoder: {display_name} ({model_name})")
 
