@@ -61,7 +61,7 @@ training:
   epochs: 10
   learning_rate: 0.00005
   batch_size: 4
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 16
   compile_model: true          # Accelerate training & forward pass with torch.compile
   compile_mode: "default"      # options: "default", "reduce-overhead", "max-autotune"
   weight_decay: 0.05
@@ -98,7 +98,7 @@ benchmark:
   learning_rate: 0.0001
   encoder_learning_rate: 0.00001
   batch_size: 4
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 16
   val_interval_epochs: 5
   early_stopping_patience: 3
   loss_weights:
