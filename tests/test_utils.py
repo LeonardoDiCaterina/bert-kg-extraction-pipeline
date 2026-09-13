@@ -117,13 +117,13 @@ def test_augmented_kg_dataset():
     tokenizer.mask_token_id = 999
     
     # 1. Test Deterministic Eval mode (no augmentation applied)
-    ds_eval = AugmentedKGDataset(base_tensors, tokenizer, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=0.0, span_jitter_prob=0.0)
+    ds_eval = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=0.0, span_jitter_prob=0.0)
     item_eval = ds_eval[0]
     assert torch.equal(item_eval["input_ids"], base_tensors["input_ids"][0])
     
     # 2. Test Entity Masking (mask_prob=1.0)
     random.seed(42)
-    ds_mask = AugmentedKGDataset(base_tensors, tokenizer, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=1.0, prefix_drop_prob=0.0, span_jitter_prob=0.0)
+    ds_mask = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=1.0, prefix_drop_prob=0.0, span_jitter_prob=0.0)
     
     # Force random to trigger masking
     with patch("random.random", return_value=0.01):
