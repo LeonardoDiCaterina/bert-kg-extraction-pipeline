@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import torch
 from bert_kg_mvp.utils import (
     align_entities_to_tokens,
@@ -66,6 +66,26 @@ def test_align_entities_to_tokens():
     assert start == 2
     assert end == 3
 
+    # Test BPE/Fast Tokenizer Character Mapping fallback
+    mock_tokenizer.is_fast = True
+    mock_encodings = MagicMock()
+    # Mock char_to_token mapping for "apple inc."
+    mock_encodings.char_to_token = MagicMock(side_effect=lambda b, c: 5 if 10 <= c <= 19 else None)
+    
+    text = "We love Apple Inc. products"
+    # "Apple Inc." starts at char index 8
+    # Oh wait, my mocked char_to_token above is naive. Let's just mock it specifically for the start/end bounds.
+    
+    def _mock_char_to_token(batch, char_idx):
+        if char_idx == 8: return 4
+        if char_idx == 17: return 5
+        return None
+        
+    mock_encodings.char_to_token.side_effect = _mock_char_to_token
+    s_fast, e_fast = align_entities_to_tokens(text, "Apple Inc.", mock_tokenizer, input_ids, encodings=mock_encodings)
+    assert s_fast == 4
+    assert e_fast == 5
+
     # Non-existent entity
     s_miss, e_miss = align_entities_to_tokens(
         "text", "nonexistent", mock_tokenizer, input_ids
@@ -77,6 +97,61 @@ def test_align_entities_to_tokens():
     s_empty, e_empty = align_entities_to_tokens("text", "", mock_tokenizer, input_ids)
     assert s_empty == -1
     assert e_empty == -1
+
+
+def test_augmented_kg_dataset():
+    from bert_kg_mvp.utils.dataset import AugmentedKGDataset
+    import random
+    
+    base_tensors = {
+        "input_ids": torch.tensor([[101, 10, 11, 12, 13, 102]]),
+        "attention_mask": torch.tensor([[1, 1, 1, 1, 1, 1]]),
+        "relations": torch.tensor([[2]]),
+        "subj_types": torch.tensor([[1]]),
+        "obj_types": torch.tensor([[3]]),
+        "subj_spans": torch.tensor([[[1, 2]]]),
+        "obj_spans": torch.tensor([[[3, 4]]]),
+    }
+    
+    tokenizer = MagicMock()
+    tokenizer.mask_token_id = 999
+    
+    # 1. Test Deterministic Eval mode (no augmentation applied)
+    ds_eval = AugmentedKGDataset(base_tensors, tokenizer, is_training=False, p_mask=1.0)
+    item_eval = ds_eval[0]
+    assert torch.equal(item_eval["input_ids"], base_tensors["input_ids"][0])
+    
+    # 2. Test Entity Masking (p_mask=1.0)
+    random.seed(42)
+    ds_mask = AugmentedKGDataset(base_tensors, tokenizer, is_training=True, p_mask=1.0, p_drop_prefix=0.0, p_jitter=0.0)
+    
+    # Force random to trigger masking
+    with patch("random.random", return_value=0.01):
+        item_mask = ds_mask[0]
+        # Since p=1.0 and random=0.01, it masks BOTH subj and obj!
+        assert item_mask["input_ids"][1] == 999
+        assert item_mask["input_ids"][2] == 999
+        assert item_mask["input_ids"][3] == 999
+        assert item_mask["input_ids"][4] == 999
+        
+    # 3. Test Prefix Dropping (p_drop_prefix=1.0)
+    ds_drop = AugmentedKGDataset(base_tensors, tokenizer, is_training=True, p_mask=0.0, p_drop_prefix=1.0, p_jitter=0.0)
+    with patch("random.random", return_value=0.01):
+        # Suppose prefix is just token [10]. Drop it!
+        with patch("bert_kg_mvp.utils.dataset.AugmentedKGDataset._drop_prefix") as mock_drop:
+            mock_drop.return_value = (torch.tensor([101, 11, 12, 13, 102, 0]), torch.tensor([1, 1, 1, 1, 1, 0]), torch.tensor([[0, 1]]), torch.tensor([[2, 3]]))
+            item_drop = ds_drop[0]
+            mock_drop.assert_called_once()
+            assert item_drop["input_ids"][-1] == 0 # Padding added
+            
+    # 4. Test Span Jittering
+    ds_jitter = AugmentedKGDataset(base_tensors, tokenizer, is_training=True, p_mask=0.0, p_drop_prefix=0.0, p_jitter=1.0)
+    with patch("random.random", return_value=0.01):
+        with patch("random.choice", return_value=1): # Shift right by 1
+            item_jitter = ds_jitter[0]
+            assert item_jitter["subj_spans"][0][0].item() == 2 # 1+1
+            assert item_jitter["subj_spans"][0][1].item() == 3 # 2+1
+
 
 
 def test_extract_html_from_sgml():

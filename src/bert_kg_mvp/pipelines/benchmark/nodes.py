@@ -71,24 +71,29 @@ def evaluate_model_on_test(
     no_relation_idx: int,
     device: torch.device,
     batch_size: int = 4,
-) -> Tuple[float, float, float, float]:
+) -> Tuple[float, float, float, float, int, int, int, float]:
     """
-    Evaluates a trained DynamicKGExtractor model on test tensors.
+    Evaluates a trained DynamicKGExtractor model on test tensors using strict 5-tuple matching.
     Returns:
-        Tuple[float, float, float, float]: (precision, recall, f1, avg_latency_ms)
+        Tuple[float, float, float, float, int, int, int, float]: 
+        (precision, recall, f1, avg_latency_ms, tp, fp, fn, avg_error_distance)
     """
     model.eval()
     input_ids = test_dataset["input_ids"]
     attention_mask = test_dataset["attention_mask"]
     gt_rels = test_dataset["relations"]
+    gt_subj_types = test_dataset["subj_types"]
+    gt_obj_types = test_dataset["obj_types"]
     gt_subj_spans = test_dataset["subj_spans"]
     gt_obj_spans = test_dataset["obj_spans"]
 
     total_samples = len(input_ids)
     if total_samples == 0:
-        return 0.0, 0.0, 0.0, 0.0
+        return 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0.0
 
     true_positives, false_positives, false_negatives = 0, 0, 0
+    total_error_distance = 0.0
+    error_count = 0
     latencies: List[float] = []
 
     with torch.no_grad():
@@ -107,6 +112,8 @@ def evaluate_model_on_test(
             latencies.append((t1 - t0) * 1000.0 / max(1, bs))
 
             rel_preds = torch.argmax(outputs["rel_logits"], dim=-1)
+            subj_type_preds = torch.argmax(outputs["subj_type_logits"], dim=-1)
+            obj_type_preds = torch.argmax(outputs["obj_type_logits"], dim=-1)
             subj_start_preds = torch.argmax(outputs["subj_start_logits"], dim=-1)
             subj_end_preds = torch.argmax(outputs["subj_end_logits"], dim=-1)
             obj_start_preds = torch.argmax(outputs["obj_start_logits"], dim=-1)
@@ -117,8 +124,10 @@ def evaluate_model_on_test(
                 true_set = set()
 
                 valid_gt = gt_rels[i + b] != no_relation_idx
-                for r, ss, os in zip(
+                for r, st, ot, ss, os in zip(
                     gt_rels[i + b][valid_gt],
+                    gt_subj_types[i + b][valid_gt],
+                    gt_obj_types[i + b][valid_gt],
                     gt_subj_spans[i + b][valid_gt],
                     gt_obj_spans[i + b][valid_gt],
                 ):
@@ -128,7 +137,7 @@ def evaluate_model_on_test(
                     obj_str = tokenizer.decode(
                         b_ids[b, os[0] : os[1] + 1], skip_special_tokens=True
                     ).strip()
-                    true_set.add((subj_str, r.item(), obj_str))
+                    true_set.add((subj_str, st.item(), r.item(), obj_str, ot.item()))
 
                 num_queries = outputs["rel_logits"].shape[1]
                 for q in range(num_queries):
@@ -153,13 +162,34 @@ def evaluate_model_on_test(
                         pred_obj = tokenizer.decode(
                             b_ids[b, o_start : o_end + 1], skip_special_tokens=True
                         ).strip()
+                        
+                        stype = subj_type_preds[b, q].item()
+                        otype = obj_type_preds[b, q].item()
 
                         if pred_subj and pred_obj:
-                            pred_set.add((pred_subj, rel, pred_obj))
+                            pred_set.add((pred_subj, stype, rel, pred_obj, otype))
 
-                true_positives += len(pred_set.intersection(true_set))
-                false_positives += len(pred_set - true_set)
-                false_negatives += len(true_set - pred_set)
+                tp_set = pred_set.intersection(true_set)
+                fp_set = pred_set - true_set
+                fn_set = true_set - pred_set
+                
+                true_positives += len(tp_set)
+                false_positives += len(fp_set)
+                false_negatives += len(fn_set)
+                
+                for fp in fp_set:
+                    if len(fn_set) == 0:
+                        total_error_distance += 5.0
+                        error_count += 1
+                        continue
+                        
+                    min_dist = 5
+                    for fn in fn_set:
+                        dist = sum(1 for c1, c2 in zip(fp, fn) if c1 != c2)
+                        min_dist = min(min_dist, dist)
+                        
+                    total_error_distance += min_dist
+                    error_count += 1
 
             del b_ids, b_mask, outputs
 
@@ -167,8 +197,9 @@ def evaluate_model_on_test(
     recall = true_positives / max((true_positives + false_negatives), 1)
     f1 = 2 * (precision * recall) / max((precision + recall), 1e-9)
     avg_latency = float(sum(latencies) / max(len(latencies), 1))
+    avg_error_dist = total_error_distance / max(error_count, 1)
 
-    return precision, recall, f1, avg_latency
+    return precision, recall, f1, avg_latency, true_positives, false_positives, false_negatives, avg_error_dist
 
 
 def run_encoder_benchmark(
@@ -457,7 +488,7 @@ def run_encoder_benchmark(
             history_record.update(avg_losses)
             
             if (epoch + 1) % val_interval_epochs == 0:
-                val_p, val_r, val_f1, _ = evaluate_model_on_test(
+                val_p, val_r, val_f1, _, tp, fp, fn, err_dist = evaluate_model_on_test(
                     model=ema_model,
                     test_dataset=val_tensors,
                     tokenizer=tokenizer,
@@ -465,7 +496,7 @@ def run_encoder_benchmark(
                     device=device,
                     batch_size=batch_size,
                 )
-                print(f"  >>> [Validation @ Epoch {epoch + 1}] F1: {val_f1:.4f} | Prec: {val_p:.4f} | Rec: {val_r:.4f}")
+                print(f"  >>> [Validation @ Epoch {epoch + 1}] F1: {val_f1:.4f} | Prec: {val_p:.4f} | Rec: {val_r:.4f} | TP: {tp} | Det: {tp + fp} | GT: {tp + fn} | ErrDist: {err_dist:.2f}")
                 history_record["val_f1"] = val_f1
                 
                 if val_f1 > best_val_f1:
@@ -497,7 +528,7 @@ def run_encoder_benchmark(
         sec_per_epoch = total_train_sec / max(1, epochs)
 
         # 4. Evaluate on Test Split
-        precision, recall, f1, avg_latency = evaluate_model_on_test(
+        precision, recall, f1, avg_latency, tp, fp, fn, err_dist = evaluate_model_on_test(
             model=model,
             test_dataset=test_tensors,
             tokenizer=tokenizer,
@@ -513,6 +544,10 @@ def run_encoder_benchmark(
                 "test_f1": round(f1, 4),
                 "test_precision": round(precision, 4),
                 "test_recall": round(recall, 4),
+                "tp": tp,
+                "detected": tp + fp,
+                "ground_truth": tp + fn,
+                "avg_error_dist": round(err_dist, 2),
                 "latency_ms_per_doc": round(avg_latency, 2),
                 "train_sec_per_epoch": round(sec_per_epoch, 2),
                 "total_params_m": round(total_params / 1e6, 2),

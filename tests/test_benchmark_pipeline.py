@@ -33,6 +33,8 @@ def test_evaluate_model_on_test_mock():
     mock_model.eval.return_value = None
     mock_model.return_value = {
         "rel_logits": torch.zeros((1, 2, 6)),
+        "subj_type_logits": torch.zeros((1, 2, 6)),
+        "obj_type_logits": torch.zeros((1, 2, 6)),
         "subj_start_logits": torch.zeros((1, 2, 10)),
         "subj_end_logits": torch.zeros((1, 2, 10)),
         "obj_start_logits": torch.zeros((1, 2, 10)),
@@ -46,11 +48,13 @@ def test_evaluate_model_on_test_mock():
         "input_ids": torch.zeros((1, 10), dtype=torch.long),
         "attention_mask": torch.ones((1, 10), dtype=torch.long),
         "relations": torch.full((1, 2), 5, dtype=torch.long),
+        "subj_types": torch.zeros((1, 2), dtype=torch.long),
+        "obj_types": torch.zeros((1, 2), dtype=torch.long),
         "subj_spans": torch.zeros((1, 2, 2), dtype=torch.long),
         "obj_spans": torch.zeros((1, 2, 2), dtype=torch.long),
     }
 
-    prec, rec, f1, latency = evaluate_model_on_test(
+    prec, rec, f1, latency, tp, fp, fn, err_dist = evaluate_model_on_test(
         model=mock_model,
         test_dataset=test_ds,
         tokenizer=mock_tokenizer,
@@ -62,6 +66,10 @@ def test_evaluate_model_on_test_mock():
     assert 0.0 <= rec <= 1.0
     assert 0.0 <= f1 <= 1.0
     assert latency >= 0.0
+    assert tp >= 0
+    assert fp >= 0
+    assert fn >= 0
+    assert err_dist >= 0.0
 
 
 @patch("bert_kg_mvp.pipelines.benchmark.nodes.prepare_training_data")
@@ -94,6 +102,8 @@ def test_run_encoder_benchmark_mock(mock_model_cls, mock_prep_data):
         "rel_logits": torch.zeros(
             (ids.size(0), 2, 6), device=ids.device, requires_grad=True
         ),
+        "subj_type_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device),
+        "obj_type_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device),
         "subj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
         "subj_end_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
         "obj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
