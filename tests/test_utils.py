@@ -129,28 +129,28 @@ def test_augmented_kg_dataset():
     with patch("random.random", return_value=0.01):
         item_mask = ds_mask[0]
         # Since p=1.0 and random=0.01, it masks BOTH subj and obj!
-        assert item_mask["input_ids"][1] == 999
-        assert item_mask["input_ids"][2] == 999
-        assert item_mask["input_ids"][3] == 999
-        assert item_mask["input_ids"][4] == 999
+        assert item_mask[0][1] == 999
+        assert item_mask[0][2] == 999
+        assert item_mask[0][3] == 999
+        assert item_mask[0][4] == 999
         
-    # 3. Test Prefix Dropping (p_drop_prefix=1.0)
-    ds_drop = AugmentedKGDataset(base_tensors, tokenizer, is_training=True, p_mask=0.0, p_drop_prefix=1.0, p_jitter=0.0)
+    # 3. Test Prefix Dropping (prefix_drop_prob=1.0)
+    ds_drop = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=1.0, span_jitter_prob=0.0)
     with patch("random.random", return_value=0.01):
         # Suppose prefix is just token [10]. Drop it!
         with patch("bert_kg_mvp.utils.dataset.AugmentedKGDataset._drop_prefix") as mock_drop:
             mock_drop.return_value = (torch.tensor([101, 11, 12, 13, 102, 0]), torch.tensor([1, 1, 1, 1, 1, 0]), torch.tensor([[0, 1]]), torch.tensor([[2, 3]]))
             item_drop = ds_drop[0]
             mock_drop.assert_called_once()
-            assert item_drop["input_ids"][-1] == 0 # Padding added
+            assert item_drop[0][-1] == 0 # Padding added
             
     # 4. Test Span Jittering
-    ds_jitter = AugmentedKGDataset(base_tensors, tokenizer, is_training=True, p_mask=0.0, p_drop_prefix=0.0, p_jitter=1.0)
+    ds_jitter = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=0.0, span_jitter_prob=1.0)
     with patch("random.random", return_value=0.01):
         with patch("random.choice", return_value=1): # Shift right by 1
             item_jitter = ds_jitter[0]
-            assert item_jitter["subj_spans"][0][0].item() == 2 # 1+1
-            assert item_jitter["subj_spans"][0][1].item() == 3 # 2+1
+            assert item_jitter[5][0][0].item() == 2 # 1+1 (subj_spans is at index 5)
+            assert item_jitter[5][0][1].item() == 3 # 2+1
 
 
 
