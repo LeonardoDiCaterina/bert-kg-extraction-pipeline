@@ -147,11 +147,19 @@ def test_augmented_kg_dataset():
             
     # 4. Test Span Jittering
     ds_jitter = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=0.0, span_jitter_prob=1.0)
-    with patch("random.random", return_value=0.01):
-        with patch("random.choice", return_value=1): # Shift right by 1
-            item_jitter = ds_jitter[0]
-            assert item_jitter[5][0][0].item() == 2 # 1+1 (subj_spans is at index 5)
-            assert item_jitter[5][0][1].item() == 3 # 2+1
+    # _jitter_span uses torch.rand(1).item() for both the probability check and the shift direction.
+    # We will mock it to return a tensor whose item() is 0.9.
+    # 0.9 < span_jitter_prob (1.0) -> True, jitter happens.
+    # 0.9 > 0.5 -> True, shift is +1.
+    mock_tensor = MagicMock()
+    mock_tensor.item.return_value = 0.9
+    with patch("torch.rand", return_value=mock_tensor):
+        item_jitter = ds_jitter[0]
+        # Original subj_span is [1, 2]. Both start and end shift by +1.
+        # start: 1 + 1 = 2
+        # end: 2 + 1 = 3
+        assert item_jitter[5][0][0].item() == 2
+        assert item_jitter[5][0][1].item() == 3
 
 
 
