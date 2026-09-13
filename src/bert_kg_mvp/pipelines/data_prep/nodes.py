@@ -256,19 +256,19 @@ def prepare_training_data(
             ):
                 continue
 
-            subj_start, subj_end = align_entities_to_tokens(text, sub, tokenizer, ids)
+            subj_start, subj_end = align_entities_to_tokens(text, sub, tokenizer, ids, encodings=encodings)
             # If subject not found directly, check if ticker is in context prefix
             if subj_start == -1 and ticker:
                 subj_start, subj_end = align_entities_to_tokens(
-                    text, ticker.lower(), tokenizer, ids
+                    text, ticker.lower(), tokenizer, ids, encodings=encodings
                 )
 
-            obj_start, obj_end = align_entities_to_tokens(text, obj, tokenizer, ids)
+            obj_start, obj_end = align_entities_to_tokens(text, obj, tokenizer, ids, encodings=encodings)
             # If tail entity is a long phrase, align to the core noun phrase (first 4 words)
             if obj_start == -1 and len(obj.split()) > 4:
                 core_obj = " ".join(obj.split()[:4])
                 obj_start, obj_end = align_entities_to_tokens(
-                    text, core_obj, tokenizer, ids
+                    text, core_obj, tokenizer, ids, encodings=encodings
                 )
 
             if subj_start != -1 and obj_start != -1:
@@ -320,7 +320,7 @@ def prepare_training_data(
             }
         )
 
-        if len(input_ids_list) >= max_samples:
+        if max_samples is not None and len(input_ids_list) >= max_samples:
             break
 
     print(f"Gathered {len(input_ids_list)} valid financial samples.")

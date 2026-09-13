@@ -32,7 +32,7 @@ data_prep:
   max_chunk_words: 1500
   max_seq_length: 128
   max_gt_triples: 15
-  max_samples: 5000
+  max_samples: null            # Set to null to process the entire training dataset
   use_context_prefix: true     # Inject [Ticker | Year | Section] prefix into tokens
   target_items_regex: "(item\\s+(1|1a|7|7a|8)\\.?\\s+)"
   stop_items_regex: "(item\\s+(9|10|15)\\.?\\s+|signat(ure|ures)|part\\s+iv)"
