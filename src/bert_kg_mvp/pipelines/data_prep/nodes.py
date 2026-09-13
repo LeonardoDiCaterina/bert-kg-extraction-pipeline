@@ -226,7 +226,7 @@ def prepare_training_data(
             if not isinstance(t, dict):
                 continue
 
-            sub = t.get("head", "").strip().lower()
+            sub = str(t.get("head") or "").strip().lower()
             if sub in [
                 "exact company name",
                 "the corporation",
@@ -240,10 +240,10 @@ def prepare_training_data(
                 elif "doc_id" in row:
                     sub = str(row["doc_id"]).lower()
 
-            sub_type = t.get("head_type", "").strip().lower()
-            rel = t.get("relation", "").strip().lower()
-            obj = t.get("tail", "").strip().lower()
-            obj_type = t.get("tail_type", "").strip().lower()
+            sub_type = str(t.get("head_type") or "").strip().lower()
+            rel = str(t.get("relation") or "").strip().lower()
+            obj = str(t.get("tail") or "").strip().lower()
+            obj_type = str(t.get("tail_type") or "").strip().lower()
 
             # Normalize common synonyms to canonical schema types
             sub_type = TYPE_SYNONYMS.get(sub_type, sub_type)

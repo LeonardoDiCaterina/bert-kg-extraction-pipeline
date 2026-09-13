@@ -1,5 +1,8 @@
+import copy
 import gc
+import os
 import time
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import torch
@@ -371,10 +374,6 @@ def run_encoder_benchmark(
                 )
 
         start_train_time = time.perf_counter()
-        from collections import defaultdict
-        import pandas as pd
-        import os
-        import copy
         
         history = []
         best_val_f1 = -1.0
