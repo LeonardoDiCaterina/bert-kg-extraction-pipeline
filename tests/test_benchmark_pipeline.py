@@ -54,7 +54,7 @@ def test_evaluate_model_on_test_mock():
         "obj_spans": torch.zeros((1, 2, 2), dtype=torch.long),
     }
 
-    prec, rec, f1, latency, tp, fp, fn, err_dist = evaluate_model_on_test(
+    metrics = evaluate_model_on_test(
         model=mock_model,
         test_dataset=test_ds,
         tokenizer=mock_tokenizer,
@@ -62,14 +62,20 @@ def test_evaluate_model_on_test_mock():
         device=torch.device("cpu"),
         batch_size=1,
     )
-    assert 0.0 <= prec <= 1.0
-    assert 0.0 <= rec <= 1.0
-    assert 0.0 <= f1 <= 1.0
-    assert latency >= 0.0
-    assert tp >= 0
-    assert fp >= 0
-    assert fn >= 0
-    assert err_dist >= 0.0
+    assert isinstance(metrics, dict)
+    assert 0.0 <= metrics["strict_precision"] <= 1.0
+    assert 0.0 <= metrics["strict_recall"] <= 1.0
+    assert 0.0 <= metrics["strict_f1"] <= 1.0
+    assert metrics["avg_latency_ms"] >= 0.0
+    assert metrics["tp"] >= 0
+    assert metrics["fp"] >= 0
+    assert metrics["fn"] >= 0
+    assert metrics["mean_error_distance"] >= 0.0
+    
+    assert 0.0 <= metrics["span_f1"] <= 1.0
+    assert "type_accuracy" in metrics
+    assert "rel_accuracy" in metrics
+    assert "per_rel_tp" in metrics
 
 
 @patch("bert_kg_mvp.pipelines.benchmark.nodes.prepare_training_data")
@@ -132,4 +138,6 @@ def test_run_encoder_benchmark_mock(mock_model_cls, mock_prep_data):
     assert isinstance(results_df, pd.DataFrame)
     assert len(results_df) == 1
     assert "model_name" in results_df.columns
-    assert "test_f1" in results_df.columns
+    assert "test_strict_f1" in results_df.columns
+    assert "test_span_f1" in results_df.columns
+    assert "test_type_acc" in results_df.columns

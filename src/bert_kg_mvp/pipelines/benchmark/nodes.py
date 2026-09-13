@@ -2,7 +2,7 @@ import copy
 import gc
 import os
 import time
-from collections import defaultdict
+from collections import defaultdict, Counter
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import torch
@@ -71,12 +71,11 @@ def evaluate_model_on_test(
     no_relation_idx: int,
     device: torch.device,
     batch_size: int = 4,
-) -> Tuple[float, float, float, float, int, int, int, float]:
+) -> Dict[str, Any]:
     """
-    Evaluates a trained DynamicKGExtractor model on test tensors using strict 5-tuple matching.
-    Returns:
-        Tuple[float, float, float, float, int, int, int, float]: 
-        (precision, recall, f1, avg_latency_ms, tp, fp, fn, avg_error_distance)
+    Evaluates a trained DynamicKGExtractor model on test tensors using strict 5-tuple matching
+    along with hierarchical diagnostic metrics (span F1, type accuracy, relation accuracy).
+    Returns a dictionary of metrics.
     """
     model.eval()
     input_ids = test_dataset["input_ids"]
@@ -89,9 +88,21 @@ def evaluate_model_on_test(
 
     total_samples = len(input_ids)
     if total_samples == 0:
-        return 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0.0
+        return {}
 
     true_positives, false_positives, false_negatives = 0, 0, 0
+    span_true_positives, span_false_positives, span_false_negatives = 0, 0, 0
+    
+    type_correct_count = 0
+    subj_type_correct_count = 0
+    obj_type_correct_count = 0
+    rel_correct_count = 0
+    span_matched_count = 0
+    
+    per_rel_tp = Counter()
+    per_rel_fp = Counter()
+    per_rel_fn = Counter()
+
     total_error_distance = 0.0
     error_count = 0
     latencies: List[float] = []
@@ -177,6 +188,38 @@ def evaluate_model_on_test(
                 false_positives += len(fp_set)
                 false_negatives += len(fn_set)
                 
+                # Tier 1: Span matches
+                pred_span_set = {(p[0], p[3]) for p in pred_set}
+                true_span_set = {(t[0], t[3]) for t in true_set}
+                span_true_positives += len(pred_span_set & true_span_set)
+                span_false_positives += len(pred_span_set - true_span_set)
+                span_false_negatives += len(true_span_set - pred_span_set)
+                
+                # Tier 2 & 3: Conditional on spans
+                for pred in pred_set:
+                    pred_spans = (pred[0], pred[3])
+                    for gt in true_set:
+                        gt_spans = (gt[0], gt[3])
+                        if pred_spans == gt_spans:
+                            span_matched_count += 1
+                            if pred[1] == gt[1] and pred[4] == gt[4]:
+                                type_correct_count += 1
+                            if pred[1] == gt[1]:
+                                subj_type_correct_count += 1
+                            if pred[4] == gt[4]:
+                                obj_type_correct_count += 1
+                            if pred[2] == gt[2]:
+                                rel_correct_count += 1
+                            break
+                            
+                # Tier 4: Per Relation
+                for t in tp_set:
+                    per_rel_tp[t[2]] += 1
+                for fp in fp_set:
+                    per_rel_fp[fp[2]] += 1
+                for fn in fn_set:
+                    per_rel_fn[fn[2]] += 1
+                
                 for fp in fp_set:
                     if len(fn_set) == 0:
                         total_error_distance += 5.0
@@ -196,10 +239,42 @@ def evaluate_model_on_test(
     precision = true_positives / max((true_positives + false_positives), 1)
     recall = true_positives / max((true_positives + false_negatives), 1)
     f1 = 2 * (precision * recall) / max((precision + recall), 1e-9)
+    
+    span_precision = span_true_positives / max((span_true_positives + span_false_positives), 1)
+    span_recall = span_true_positives / max((span_true_positives + span_false_negatives), 1)
+    span_f1 = 2 * (span_precision * span_recall) / max((span_precision + span_recall), 1e-9)
+    
+    type_accuracy = type_correct_count / max(span_matched_count, 1)
+    subj_type_accuracy = subj_type_correct_count / max(span_matched_count, 1)
+    obj_type_accuracy = obj_type_correct_count / max(span_matched_count, 1)
+    rel_accuracy = rel_correct_count / max(span_matched_count, 1)
+    
     avg_latency = float(sum(latencies) / max(len(latencies), 1))
     avg_error_dist = total_error_distance / max(error_count, 1)
 
-    return precision, recall, f1, avg_latency, true_positives, false_positives, false_negatives, avg_error_dist
+    return {
+        "strict_precision": precision,
+        "strict_recall": recall,
+        "strict_f1": f1,
+        "tp": true_positives,
+        "fp": false_positives,
+        "fn": false_negatives,
+        "detected": true_positives + false_positives,
+        "ground_truth": true_positives + false_negatives,
+        "span_precision": span_precision,
+        "span_recall": span_recall,
+        "span_f1": span_f1,
+        "type_accuracy": type_accuracy,
+        "subj_type_accuracy": subj_type_accuracy,
+        "obj_type_accuracy": obj_type_accuracy,
+        "type_sample_size": span_matched_count,
+        "rel_accuracy": rel_accuracy,
+        "per_rel_tp": dict(per_rel_tp),
+        "per_rel_fp": dict(per_rel_fp),
+        "per_rel_fn": dict(per_rel_fn),
+        "mean_error_distance": avg_error_dist,
+        "avg_latency_ms": avg_latency,
+    }
 
 
 def run_encoder_benchmark(
@@ -488,7 +563,7 @@ def run_encoder_benchmark(
             history_record.update(avg_losses)
             
             if (epoch + 1) % val_interval_epochs == 0:
-                val_p, val_r, val_f1, _, tp, fp, fn, err_dist = evaluate_model_on_test(
+                val_metrics = evaluate_model_on_test(
                     model=ema_model,
                     test_dataset=val_tensors,
                     tokenizer=tokenizer,
@@ -496,7 +571,14 @@ def run_encoder_benchmark(
                     device=device,
                     batch_size=batch_size,
                 )
-                print(f"  >>> [Validation @ Epoch {epoch + 1}] F1: {val_f1:.4f} | Prec: {val_p:.4f} | Rec: {val_r:.4f} | TP: {tp} | Det: {tp + fp} | GT: {tp + fn} | ErrDist: {err_dist:.2f}")
+                val_f1 = val_metrics.get("strict_f1", 0.0)
+                print(
+                    f"  >>> [Validation @ Epoch {epoch + 1}] "
+                    f"Strict F1: {val_f1:.4f} | Span F1: {val_metrics.get('span_f1', 0.0):.4f} | "
+                    f"TypeAcc: {val_metrics.get('type_accuracy', 0.0):.2f} | RelAcc: {val_metrics.get('rel_accuracy', 0.0):.2f} | "
+                    f"TP: {val_metrics.get('tp', 0)} | Det: {val_metrics.get('detected', 0)} | "
+                    f"GT: {val_metrics.get('ground_truth', 0)} | MED: {val_metrics.get('mean_error_distance', 0.0):.2f}"
+                )
                 history_record["val_f1"] = val_f1
                 
                 if val_f1 > best_val_f1:
@@ -540,7 +622,7 @@ def run_encoder_benchmark(
         sec_per_epoch = total_train_sec / max(1, epochs)
 
         # 4. Evaluate on Test Split
-        precision, recall, f1, avg_latency, tp, fp, fn, err_dist = evaluate_model_on_test(
+        test_metrics = evaluate_model_on_test(
             model=model,
             test_dataset=test_tensors,
             tokenizer=tokenizer,
@@ -553,14 +635,15 @@ def run_encoder_benchmark(
             {
                 "model_name": model_name,
                 "display_name": display_name,
-                "test_f1": round(f1, 4),
-                "test_precision": round(precision, 4),
-                "test_recall": round(recall, 4),
-                "tp": tp,
-                "detected": tp + fp,
-                "ground_truth": tp + fn,
-                "avg_error_dist": round(err_dist, 2),
-                "latency_ms_per_doc": round(avg_latency, 2),
+                "test_strict_f1": round(test_metrics.get("strict_f1", 0.0), 4),
+                "test_span_f1": round(test_metrics.get("span_f1", 0.0), 4),
+                "test_type_acc": round(test_metrics.get("type_accuracy", 0.0), 4),
+                "test_rel_acc": round(test_metrics.get("rel_accuracy", 0.0), 4),
+                "tp": test_metrics.get("tp", 0),
+                "detected": test_metrics.get("detected", 0),
+                "ground_truth": test_metrics.get("ground_truth", 0),
+                "avg_error_dist": round(test_metrics.get("mean_error_distance", 0.0), 2),
+                "latency_ms_per_doc": round(test_metrics.get("avg_latency_ms", 0.0), 2),
                 "train_sec_per_epoch": round(sec_per_epoch, 2),
                 "total_params_m": round(total_params / 1e6, 2),
                 "trainable_params_m": round(trainable_params / 1e6, 2),
@@ -568,8 +651,9 @@ def run_encoder_benchmark(
         )
 
         print(
-            f"Result for {display_name}: F1={f1:.4f} | Prec={precision:.4f} | Rec={recall:.4f} | "
-            f"Latency={avg_latency:.2f}ms/doc | Train={sec_per_epoch:.2f}s/epoch"
+            f"Result for {display_name}: Strict F1={test_metrics.get('strict_f1', 0.0):.4f} | "
+            f"Span F1={test_metrics.get('span_f1', 0.0):.4f} | TypeAcc={test_metrics.get('type_accuracy', 0.0):.4f} | "
+            f"Latency={test_metrics.get('avg_latency_ms', 0.0):.2f}ms/doc | Train={sec_per_epoch:.2f}s/epoch"
         )
 
         # Cleanup memory before next encoder
