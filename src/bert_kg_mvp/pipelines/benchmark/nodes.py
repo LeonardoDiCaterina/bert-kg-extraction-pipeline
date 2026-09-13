@@ -516,7 +516,19 @@ def run_encoder_benchmark(
             
         if best_model_state is not None:
             print(f"  [Restoring best weights] Reverting to model with Validation F1: {best_val_f1:.4f}")
-            model.load_state_dict(best_model_state)
+            
+            if compile_model and hasattr(torch, "compile"):
+                # torch.compile adds '_orig_mod.' prefix to all parameters in the OptimizedModule.
+                # Since we copied from ema_model, we need to add the prefix back.
+                compiled_state = {}
+                for k, v in best_model_state.items():
+                    if not k.startswith("_orig_mod."):
+                        compiled_state[f"_orig_mod.{k}"] = v
+                    else:
+                        compiled_state[k] = v
+                model.load_state_dict(compiled_state)
+            else:
+                model.load_state_dict(best_model_state)
             
         # Save tracking history to CSV
         os.makedirs("data/08_reporting", exist_ok=True)

@@ -7,11 +7,11 @@ PYTEST ?= pytest
 RUFF ?= ruff
 GPU ?= 1
 
-# If GPU is specified, prepend CUDA_VISIBLE_DEVICES
+# If GPU is specified, prepend CUDA_VISIBLE_DEVICES and unbuffer python output
 ifneq ($(strip $(GPU)),)
-  GPU_ENV = CUDA_VISIBLE_DEVICES=$(GPU)
+  GPU_ENV = CUDA_VISIBLE_DEVICES=$(GPU) PYTHONUNBUFFERED=1
 else
-  GPU_ENV =
+  GPU_ENV = PYTHONUNBUFFERED=1
 endif
 
 help:
