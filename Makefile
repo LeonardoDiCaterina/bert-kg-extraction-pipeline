@@ -101,8 +101,10 @@ run-train:
 	$(GPU_ENV) $(KEDRO) run --pipeline training
 
 run-benchmark:
-	@echo "==> Starting Multi-Encoder Benchmark Pipeline on GPU=$(GPU)..."
-	$(GPU_ENV) $(KEDRO) run --pipeline benchmark
+	@echo "==> Launching Multi-Encoder Benchmark in background on GPU=$(GPU) with nohup..."
+	@$(GPU_ENV) nohup $(KEDRO) run --pipeline benchmark > benchmark.log 2>&1 & \
+		echo "Benchmark started in background! PID: $$!"
+	@echo "Monitor live logs with: tail -f benchmark.log"
 
 # --- Maintenance ---
 
