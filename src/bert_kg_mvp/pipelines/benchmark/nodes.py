@@ -345,6 +345,10 @@ def run_encoder_benchmark(
             div_factor=10.0,
             final_div_factor=1e4
         )
+        
+        from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+        ema_decay = benchmark_params.get("ema_decay", 0.999)
+        ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
 
         # 3. Train
         if freeze_strategy == "all":
@@ -432,6 +436,7 @@ def run_encoder_benchmark(
                 if (step + 1) % accum_steps == 0 or (step + 1) == len(train_loader):
                     optimizer.step()
                     scheduler.step()
+                    ema_model.update_parameters(model)
                     optimizer.zero_grad()
                     
                 total_loss += loss.item()
@@ -441,16 +446,19 @@ def run_encoder_benchmark(
             avg_total = total_loss / len(train_loader)
             avg_losses = {k: v / len(train_loader) for k, v in epoch_losses.items()}
             
+            # Calculate L2 Norm of model parameters to show weight decay regularization effect
+            l2_norm = sum(p.norm(2).item() for p in model.parameters() if p.requires_grad)
+            
             # Print at every epoch
             avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
-            print(f"  Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f} | {avg_components}")
+            print(f"  Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f} | {avg_components} | l2_norm: {l2_norm:.2f}")
                 
             history_record = {"epoch": epoch + 1, "total_loss": avg_total}
             history_record.update(avg_losses)
             
             if (epoch + 1) % val_interval_epochs == 0:
                 val_p, val_r, val_f1, _ = evaluate_model_on_test(
-                    model=model,
+                    model=ema_model,
                     test_dataset=val_tensors,
                     tokenizer=tokenizer,
                     no_relation_idx=no_relation_idx,
@@ -463,7 +471,7 @@ def run_encoder_benchmark(
                 if val_f1 > best_val_f1:
                     best_val_f1 = val_f1
                     patience_counter = 0
-                    best_model_state = copy.deepcopy(model.state_dict())
+                    best_model_state = copy.deepcopy(ema_model.module.state_dict())
                 else:
                     patience_counter += 1
                     

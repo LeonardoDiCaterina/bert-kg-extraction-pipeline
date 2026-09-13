@@ -147,6 +147,10 @@ def train_model(
     import os
     
     history = []
+    
+    from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+    ema_decay = training_params.get("ema_decay", 0.999)
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
 
     for epoch in range(epochs):
         total_loss = 0.0
@@ -185,6 +189,7 @@ def train_model(
 
             if (step + 1) % accum_steps == 0 or (step + 1) == len(dataloader):
                 optimizer.step()
+                ema_model.update_parameters(model)
                 optimizer.zero_grad()
 
             total_loss += loss.item()
@@ -206,9 +211,12 @@ def train_model(
         avg_total = total_loss / len(dataloader)
         avg_losses = {k: v / len(dataloader) for k, v in epoch_losses.items()}
         
+        # Calculate L2 Norm of model parameters to show weight decay regularization effect
+        l2_norm = sum(p.norm(2).item() for p in model.parameters() if p.requires_grad)
+        
         print(f"Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f}")
         avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
-        print(f"  --> Components: {avg_components}")
+        print(f"  --> Components: {avg_components} | l2_norm: {l2_norm:.2f}")
         
         # Track history
         history_record = {"epoch": epoch + 1, "total_loss": avg_total}
@@ -222,5 +230,8 @@ def train_model(
     history_df.to_csv(f"data/08_reporting/loss_history_{safe_model_name}.csv", index=False)
     print(f"Saved loss history to data/08_reporting/loss_history_{safe_model_name}.csv")
 
+    # Load EMA weights into the raw model before returning
+    model.load_state_dict(ema_model.module.state_dict())
+    
     # Return underlying uncompiled model if wrapped (for clean serialization)
     return getattr(model, "_orig_mod", model)

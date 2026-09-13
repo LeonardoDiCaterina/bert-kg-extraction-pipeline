@@ -68,6 +68,7 @@ training:
   mask_prob: 0.15              # Entity masking probability for dynamic data augmentation
   prefix_drop_prob: 0.15       # Context prefix dropping probability
   span_jitter_prob: 0.10       # Span boundary jittering probability
+  ema_decay: 0.999             # Exponential Moving Average decay rate
 
 # ─── Model Inference & Validation ─────────────────────────────────────────────
 inference:
@@ -122,6 +123,7 @@ benchmark:
   mask_prob: 0.15              # Entity masking probability for dynamic data augmentation
   prefix_drop_prob: 0.15       # Context prefix dropping probability
   span_jitter_prob: 0.10       # Span boundary jittering probability
+  ema_decay: 0.999             # Exponential Moving Average decay rate
 
 # ─── EvalBench Pipeline ─────────────────────────────────────────────────────────
 evalbench:
