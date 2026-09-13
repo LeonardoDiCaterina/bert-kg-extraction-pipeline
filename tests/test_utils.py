@@ -119,7 +119,7 @@ def test_augmented_kg_dataset():
     # 1. Test Deterministic Eval mode (no augmentation applied)
     ds_eval = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=0.0, span_jitter_prob=0.0)
     item_eval = ds_eval[0]
-    assert torch.equal(item_eval["input_ids"], base_tensors["input_ids"][0])
+    assert torch.equal(item_eval[0], base_tensors["input_ids"][0])
     
     # 2. Test Entity Masking (mask_prob=1.0)
     random.seed(42)
