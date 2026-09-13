@@ -117,7 +117,12 @@ def test_inference_pipeline_node():
 @patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
 def test_train_model_node(mock_extractor_cls, mock_ema):
     mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
-    mock_ema.side_effect = lambda m, multi_avg_fn: m
+    def mock_ema_factory(m, multi_avg_fn=None):
+        m.update_parameters = MagicMock()
+        m.module = m
+        return m
+    
+    mock_ema.side_effect = mock_ema_factory
 
     dataset = make_dummy_dataset(n_samples=4, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
@@ -132,6 +137,9 @@ def test_train_model_node(mock_extractor_cls, mock_ema):
         "num_queries": 3,
         "gradient_accumulation_steps": 1,
         "ema_decay": 0.999,
+        "mask_prob": 0.0,
+        "prefix_drop_prob": 0.0,
+        "span_jitter_prob": 0.0,
     }
     schema = {
         "entity_types": ["e1", "e2"],
