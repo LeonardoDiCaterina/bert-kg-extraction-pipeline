@@ -169,7 +169,7 @@ class SetCriterion(nn.Module):
             target_classes[idx] = target_classes_o
 
         loss_ce = F.cross_entropy(
-            src_logits.transpose(1, 2), target_classes, weight=self.empty_weight
+            src_logits.transpose(1, 2), target_classes, weight=self.empty_weight, label_smoothing=0.1
         )
 
         losses = {"loss_ce": loss_ce * self.weight_dict["loss_ce"]}
@@ -190,8 +190,8 @@ class SetCriterion(nn.Module):
         )
 
         loss_type = (
-            F.cross_entropy(src_subj_type, target_subj_type)
-            + F.cross_entropy(src_obj_type, target_obj_type)
+            F.cross_entropy(src_subj_type, target_subj_type, label_smoothing=0.1)
+            + F.cross_entropy(src_obj_type, target_obj_type, label_smoothing=0.1)
         ) / 2
         losses["loss_type"] = loss_type * self.weight_dict["loss_type"]
 

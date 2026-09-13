@@ -74,11 +74,13 @@ def train_model(
         else:
             decoder_params.append(param)
 
+    weight_decay = training_params.get("weight_decay", 0.05)
     optimizer = torch.optim.AdamW(
         [
             {"params": encoder_params, "lr": encoder_lr},
             {"params": decoder_params, "lr": learning_rate},
-        ]
+        ],
+        weight_decay=weight_decay
     )
     criterion = SetCriterion(
         num_relation_classes=num_relations, num_entity_types=num_ent_types
