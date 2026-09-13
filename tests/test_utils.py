@@ -135,14 +135,15 @@ def test_augmented_kg_dataset():
         assert item_mask[0][4] == 999
         
     # 3. Test Prefix Dropping (prefix_drop_prob=1.0)
-    ds_drop = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=1.0, span_jitter_prob=0.0)
+    # Set prefix_end_token_id to 11, so tokens at index 1 and 2 (10, 11) will be masked
+    ds_drop = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=1.0, span_jitter_prob=0.0, prefix_end_token_id=11)
     with patch("random.random", return_value=0.01):
-        # Suppose prefix is just token [10]. Drop it!
-        with patch("bert_kg_mvp.utils.dataset.AugmentedKGDataset._drop_prefix") as mock_drop:
-            mock_drop.return_value = (torch.tensor([101, 11, 12, 13, 102, 0]), torch.tensor([1, 1, 1, 1, 1, 0]), torch.tensor([[0, 1]]), torch.tensor([[2, 3]]))
-            item_drop = ds_drop[0]
-            mock_drop.assert_called_once()
-            assert item_drop[0][-1] == 0 # Padding added
+        item_drop = ds_drop[0]
+        # Token at index 0 (101) is preserved. Indices 1 and 2 become 999.
+        assert item_drop[0][0] == 101
+        assert item_drop[0][1] == 999
+        assert item_drop[0][2] == 999
+        assert item_drop[0][3] == 12
             
     # 4. Test Span Jittering
     ds_jitter = AugmentedKGDataset(base_tensors, mask_token_id=999, pad_token_id=0, no_relation_idx=5, mask_prob=0.0, prefix_drop_prob=0.0, span_jitter_prob=1.0)
