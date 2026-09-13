@@ -86,8 +86,7 @@ smoke-train:
 
 smoke-benchmark:
 	@echo "==> Running Benchmark Smoke Test (1 epoch, bert-base-uncased)..."
-	$(GPU_ENV) $(KEDRO) run --pipeline benchmark --params training.epochs=1,benchmark.models="['bert-base-uncased']",training.compile_model=false
-
+	$(GPU_ENV) $(KEDRO) run --pipeline benchmark --params training.epochs=1
 # --- Production Execution Targets ---
 
 run-teacher:
