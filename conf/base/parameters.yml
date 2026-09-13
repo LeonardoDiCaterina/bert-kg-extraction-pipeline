@@ -64,6 +64,10 @@ training:
   gradient_accumulation_steps: 8
   compile_model: true          # Accelerate training & forward pass with torch.compile
   compile_mode: "default"      # options: "default", "reduce-overhead", "max-autotune"
+  weight_decay: 0.05
+  mask_prob: 0.15              # Entity masking probability for dynamic data augmentation
+  prefix_drop_prob: 0.15       # Context prefix dropping probability
+  span_jitter_prob: 0.10       # Span boundary jittering probability
 
 # ─── Model Inference & Validation ─────────────────────────────────────────────
 inference:
@@ -114,6 +118,10 @@ benchmark:
   compile_model: true              # Accelerate benchmark models with torch.compile
   compile_mode: "default"
   float32_matmul_precision: "high" # options: "highest", "high", "medium"
+  weight_decay: 0.05
+  mask_prob: 0.15              # Entity masking probability for dynamic data augmentation
+  prefix_drop_prob: 0.15       # Context prefix dropping probability
+  span_jitter_prob: 0.10       # Span boundary jittering probability
 
 # ─── EvalBench Pipeline ─────────────────────────────────────────────────────────
 evalbench:

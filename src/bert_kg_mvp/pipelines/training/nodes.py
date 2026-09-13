@@ -86,14 +86,20 @@ def train_model(
         num_relation_classes=num_relations, num_entity_types=num_ent_types
     ).to(device)
 
-    dataset = TensorDataset(
-        processed_dataset["input_ids"],
-        processed_dataset["attention_mask"],
-        processed_dataset["relations"],
-        processed_dataset["subj_types"],
-        processed_dataset["obj_types"],
-        processed_dataset["subj_spans"],
-        processed_dataset["obj_spans"],
+    from bert_kg_mvp.utils.dataset import AugmentedKGDataset
+    prefix_end_token_id = tokenizer.convert_tokens_to_ids("]") if "]" in tokenizer.get_vocab() else None
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+    mask_token_id = tokenizer.mask_token_id if tokenizer.mask_token_id is not None else pad_token_id
+    
+    dataset = AugmentedKGDataset(
+        tensors_dict=processed_dataset,
+        mask_token_id=mask_token_id,
+        pad_token_id=pad_token_id,
+        no_relation_idx=no_relation_idx,
+        prefix_end_token_id=prefix_end_token_id,
+        mask_prob=training_params.get("mask_prob", 0.15),
+        prefix_drop_prob=training_params.get("prefix_drop_prob", 0.15),
+        span_jitter_prob=training_params.get("span_jitter_prob", 0.1)
     )
 
     batch_size = training_params.get("batch_size", 4)

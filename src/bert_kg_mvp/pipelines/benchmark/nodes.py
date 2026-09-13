@@ -317,14 +317,20 @@ def run_encoder_benchmark(
             matcher_weight_dict=matcher_weights,
         ).to(device)
 
-        train_ds = TensorDataset(
-            train_tensors["input_ids"],
-            train_tensors["attention_mask"],
-            train_tensors["relations"],
-            train_tensors["subj_types"],
-            train_tensors["obj_types"],
-            train_tensors["subj_spans"],
-            train_tensors["obj_spans"],
+        from bert_kg_mvp.utils.dataset import AugmentedKGDataset
+        prefix_end_token_id = tokenizer.convert_tokens_to_ids("]") if "]" in tokenizer.get_vocab() else None
+        pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+        mask_token_id = tokenizer.mask_token_id if tokenizer.mask_token_id is not None else pad_token_id
+        
+        train_ds = AugmentedKGDataset(
+            tensors_dict=train_tensors,
+            mask_token_id=mask_token_id,
+            pad_token_id=pad_token_id,
+            no_relation_idx=no_relation_idx,
+            prefix_end_token_id=prefix_end_token_id,
+            mask_prob=benchmark_params.get("mask_prob", 0.15),
+            prefix_drop_prob=benchmark_params.get("prefix_drop_prob", 0.15),
+            span_jitter_prob=benchmark_params.get("span_jitter_prob", 0.1)
         )
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         
