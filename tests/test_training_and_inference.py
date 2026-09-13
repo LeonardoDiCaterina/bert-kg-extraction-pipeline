@@ -118,14 +118,18 @@ def test_inference_pipeline_node():
 def test_train_model_node(mock_extractor_cls, mock_ema):
     mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
     def mock_ema_factory(m, multi_avg_fn=None):
-        m.update_parameters = MagicMock()
-        m.module = m
-        return m
+        ema = MagicMock()
+        ema.update_parameters = MagicMock()
+        ema.module = m
+        return ema
     
     mock_ema.side_effect = mock_ema_factory
 
     dataset = make_dummy_dataset(n_samples=4, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
+    mock_tokenizer.mask_token_id = 999
+    mock_tokenizer.pad_token_id = 0
+    mock_tokenizer.get_vocab.return_value = {}
 
     params = {
         "encoder_model_name": "bert-base-uncased",
@@ -162,6 +166,9 @@ def test_train_model_freeze_all(mock_extractor_cls):
 
     dataset = make_dummy_dataset(n_samples=2, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
+    mock_tokenizer.mask_token_id = 999
+    mock_tokenizer.pad_token_id = 0
+    mock_tokenizer.get_vocab.return_value = {}
 
     params = {
         "encoder_model_name": "bert-base-uncased",
@@ -184,6 +191,9 @@ def test_train_model_with_compilation(mock_extractor_cls):
 
     dataset = make_dummy_dataset(n_samples=2, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
+    mock_tokenizer.mask_token_id = 999
+    mock_tokenizer.pad_token_id = 0
+    mock_tokenizer.get_vocab.return_value = {}
 
     params = {
         "encoder_model_name": "bert-base-uncased",
