@@ -106,6 +106,7 @@ def evaluate_model_on_test(
 
     total_error_distance = 0.0
     error_count = 0
+    comp_errors = {"subj_span": 0, "subj_type": 0, "rel": 0, "obj_span": 0, "obj_type": 0}
     latencies: List[float] = []
 
     with torch.no_grad():
@@ -225,15 +226,29 @@ def evaluate_model_on_test(
                     if len(fn_set) == 0:
                         total_error_distance += 5.0
                         error_count += 1
+                        comp_errors["subj_span"] += 1
+                        comp_errors["subj_type"] += 1
+                        comp_errors["rel"] += 1
+                        comp_errors["obj_span"] += 1
+                        comp_errors["obj_type"] += 1
                         continue
                         
-                    min_dist = 5
+                    min_dist = 6
+                    best_fn = None
                     for fn in fn_set:
                         dist = sum(1 for c1, c2 in zip(fp, fn) if c1 != c2)
-                        min_dist = min(min_dist, dist)
-                        
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_fn = fn
+                            
                     total_error_distance += min_dist
                     error_count += 1
+                    
+                    if best_fn[0] != fp[0]: comp_errors["subj_span"] += 1
+                    if best_fn[1] != fp[1]: comp_errors["subj_type"] += 1
+                    if best_fn[2] != fp[2]: comp_errors["rel"] += 1
+                    if best_fn[3] != fp[3]: comp_errors["obj_span"] += 1
+                    if best_fn[4] != fp[4]: comp_errors["obj_type"] += 1
 
             del b_ids, b_mask, outputs
 
@@ -251,7 +266,16 @@ def evaluate_model_on_test(
     rel_accuracy = rel_correct_count / max(span_matched_count, 1)
     
     avg_latency = float(sum(latencies) / max(len(latencies), 1))
-    avg_error_dist = total_error_distance / max(error_count, 1)
+    
+    err_n = max(error_count, 1)
+    avg_error_dist = total_error_distance / err_n
+    comp_error_rates = {
+        "subj_span_err_rate": comp_errors["subj_span"] / err_n,
+        "subj_type_err_rate": comp_errors["subj_type"] / err_n,
+        "rel_err_rate": comp_errors["rel"] / err_n,
+        "obj_span_err_rate": comp_errors["obj_span"] / err_n,
+        "obj_type_err_rate": comp_errors["obj_type"] / err_n,
+    }
 
     return {
         "strict_precision": precision,
@@ -275,6 +299,7 @@ def evaluate_model_on_test(
         "per_rel_fn": dict(per_rel_fn),
         "mean_error_distance": avg_error_dist,
         "avg_latency_ms": avg_latency,
+        **comp_error_rates,
     }
 
 
@@ -664,6 +689,11 @@ def run_decoder_benchmark(
                 "ground_truth": test_metrics.get("ground_truth", 0),
                 "avg_error_dist": round(test_metrics.get("mean_error_distance", 0.0), 2),
                 "latency_ms_per_doc": round(test_metrics.get("avg_latency_ms", 0.0), 2),
+                "err_subj_span": round(test_metrics.get("subj_span_err_rate", 0.0), 2),
+                "err_subj_type": round(test_metrics.get("subj_type_err_rate", 0.0), 2),
+                "err_rel": round(test_metrics.get("rel_err_rate", 0.0), 2),
+                "err_obj_span": round(test_metrics.get("obj_span_err_rate", 0.0), 2),
+                "err_obj_type": round(test_metrics.get("obj_type_err_rate", 0.0), 2),
                 "train_sec_per_epoch": round(sec_per_epoch, 2),
                 "total_params_m": round(total_params / 1e6, 2),
                 "trainable_params_m": round(trainable_params / 1e6, 2),
@@ -1070,6 +1100,11 @@ def run_encoder_benchmark(
                 "ground_truth": test_metrics.get("ground_truth", 0),
                 "avg_error_dist": round(test_metrics.get("mean_error_distance", 0.0), 2),
                 "latency_ms_per_doc": round(test_metrics.get("avg_latency_ms", 0.0), 2),
+                "err_subj_span": round(test_metrics.get("subj_span_err_rate", 0.0), 2),
+                "err_subj_type": round(test_metrics.get("subj_type_err_rate", 0.0), 2),
+                "err_rel": round(test_metrics.get("rel_err_rate", 0.0), 2),
+                "err_obj_span": round(test_metrics.get("obj_span_err_rate", 0.0), 2),
+                "err_obj_type": round(test_metrics.get("obj_type_err_rate", 0.0), 2),
                 "train_sec_per_epoch": round(sec_per_epoch, 2),
                 "total_params_m": round(total_params / 1e6, 2),
                 "trainable_params_m": round(trainable_params / 1e6, 2),

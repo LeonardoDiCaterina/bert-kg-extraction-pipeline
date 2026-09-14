@@ -107,7 +107,7 @@ benchmark:
       display_name: "Option B (Disentangled)"
       num_queries: 15
       span_d_model: 256
-  epochs: 5
+  epochs: 200
   learning_rate: 0.0001
   encoder_learning_rate: 0.00001
   batch_size: 4
