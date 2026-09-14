@@ -113,7 +113,7 @@ benchmark:
   batch_size: 4
   gradient_accumulation_steps: 16
   val_interval_epochs: 5
-  early_stopping_patience: 3
+  early_stopping_patience: 6
   loss_weights:
     loss_ce: 1.0
     loss_type: 1.0
@@ -133,9 +133,9 @@ benchmark:
   compile_mode: "default"
   float32_matmul_precision: "high" # options: "highest", "high", "medium"
   weight_decay: 0.05
-  mask_prob: 0.15              # Entity masking probability for dynamic data augmentation
-  prefix_drop_prob: 0.15       # Context prefix dropping probability
-  span_jitter_prob: 0.10       # Span boundary jittering probability
+  mask_prob: 0.20              # Entity masking probability for dynamic data augmentation
+  prefix_drop_prob: 0.20       # Context prefix dropping probability
+  span_jitter_prob: 0.15       # Span boundary jittering probability
   ema_decay: 0.999             # Exponential Moving Average decay rate
 
 # ─── EvalBench Pipeline ─────────────────────────────────────────────────────────

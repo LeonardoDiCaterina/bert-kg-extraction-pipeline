@@ -486,15 +486,15 @@ def run_decoder_benchmark(
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         
         import math
-        total_steps = math.ceil(len(train_loader) / accum_steps)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        from transformers import get_cosine_with_hard_restarts_schedule_with_warmup
+        total_steps_per_epoch = math.ceil(len(train_loader) / accum_steps)
+        total_training_steps = total_steps_per_epoch * epochs
+        num_warmup_steps = int(total_training_steps * 0.1) # 10% warmup
+        scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
             optimizer,
-            max_lr=[encoder_lr, learning_rate],
-            epochs=epochs,
-            steps_per_epoch=total_steps,
-            pct_start=0.1,  # 10% warmup
-            div_factor=10.0,
-            final_div_factor=1e4
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=total_training_steps,
+            num_cycles=3
         )
         
         from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
@@ -897,15 +897,15 @@ def run_encoder_benchmark(
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         
         import math
-        total_steps = math.ceil(len(train_loader) / accum_steps)
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        from transformers import get_cosine_with_hard_restarts_schedule_with_warmup
+        total_steps_per_epoch = math.ceil(len(train_loader) / accum_steps)
+        total_training_steps = total_steps_per_epoch * epochs
+        num_warmup_steps = int(total_training_steps * 0.1) # 10% warmup
+        scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
             optimizer,
-            max_lr=[encoder_lr, learning_rate],
-            epochs=epochs,
-            steps_per_epoch=total_steps,
-            pct_start=0.1,  # 10% warmup
-            div_factor=10.0,
-            final_div_factor=1e4
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=total_training_steps,
+            num_cycles=3
         )
         
         from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
