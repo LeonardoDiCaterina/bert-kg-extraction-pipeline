@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from bert_kg_mvp.models.bipartite_loss import SetCriterion
-from bert_kg_mvp.models.architecture_2 import DynamicKGExtractor
+from bert_kg_mvp.models import build_decoder
 
 
 def train_model(
@@ -11,7 +11,7 @@ def train_model(
     tokenizer: Any,
     training_params: Dict[str, Any],
     schema_params: Optional[Dict[str, Any]] = None,
-) -> DynamicKGExtractor:
+) -> Any:
     """
     Trains the DynamicKGExtractor model using DETR-style bipartite matching loss.
     Supports either namespaced params (`params:training` + `params:schema`) or a legacy single dict.
@@ -49,16 +49,31 @@ def train_model(
     unfrozen_top_layers = training_params.get("unfrozen_top_layers", 4)
     d_model = training_params.get("d_model", 768)
 
-    model = DynamicKGExtractor(
-        encoder_model_name=encoder_model_name,
-        d_model=d_model,
-        num_layers=decoder_num_layers,
-        num_queries=num_queries,
-        num_relations=num_relations,
-        num_ent_types=num_ent_types,
-        freeze_strategy=freeze_strategy,
-        unfrozen_top_layers=unfrozen_top_layers,
-    ).to(device)
+    decoder_type = training_params.get("decoder_type", "baseline")
+    queries_per_rel = training_params.get("queries_per_rel", None)
+    span_d_model = training_params.get("span_d_model", 256)
+
+    # Base kwargs for all decoders
+    kwargs = {
+        "encoder_model_name": encoder_model_name,
+        "d_model": d_model,
+        "num_layers": decoder_num_layers,
+        "num_relations": num_relations,
+        "num_ent_types": num_ent_types,
+        "freeze_strategy": freeze_strategy,
+        "unfrozen_top_layers": unfrozen_top_layers,
+    }
+
+    # Add specific kwargs based on decoder type
+    if decoder_type == "baseline":
+        kwargs["num_queries"] = num_queries
+    elif decoder_type == "typed":
+        kwargs["queries_per_rel"] = queries_per_rel if queries_per_rel is not None else num_queries // num_relations
+    elif decoder_type == "disentangled":
+        kwargs["num_queries"] = num_queries
+        kwargs["span_d_model"] = span_d_model
+
+    model = build_decoder(decoder_type, **kwargs).to(device)
 
     learning_rate = training_params.get("learning_rate", 1e-4)
     encoder_lr = training_params.get("encoder_learning_rate", 1e-5)
@@ -83,7 +98,9 @@ def train_model(
         weight_decay=weight_decay
     )
     criterion = SetCriterion(
-        num_relation_classes=num_relations, num_entity_types=num_ent_types
+        num_relation_classes=num_relations, 
+        num_entity_types=num_ent_types,
+        queries_per_rel=queries_per_rel if decoder_type == "typed" else None
     ).to(device)
 
     from bert_kg_mvp.utils.dataset import AugmentedKGDataset

@@ -1,11 +1,7 @@
 from kedro.pipeline import Pipeline, node, pipeline
-from .nodes import run_encoder_benchmark, split_dataset_node
+from .nodes import run_encoder_benchmark, run_decoder_benchmark, split_dataset_node
 
-
-def create_pipeline(**kwargs) -> Pipeline:
-    """
-    Creates the Kedro pipeline for company-stratified multi-encoder benchmarking.
-    """
+def create_encoder_pipeline(**kwargs) -> Pipeline:
     return pipeline(
         [
             node(
@@ -22,8 +18,31 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "params:data_prep",
                     "params:schema",
                 ],
-                outputs="benchmark_results_table",
+                outputs="encoder_benchmark_results_table",
                 name="run_encoder_benchmark_node",
+            ),
+        ]
+    )
+
+def create_decoder_pipeline(**kwargs) -> Pipeline:
+    return pipeline(
+        [
+            node(
+                func=split_dataset_node,
+                inputs=["teacher_extracted_triplets", "params:split"],
+                outputs="split_triplets_data",
+                name="split_triplets_node_decoder",
+            ),
+            node(
+                func=run_decoder_benchmark,
+                inputs=[
+                    "split_triplets_data",
+                    "params:benchmark",
+                    "params:data_prep",
+                    "params:schema",
+                ],
+                outputs="decoder_benchmark_results_table",
+                name="run_decoder_benchmark_node",
             ),
         ]
     )

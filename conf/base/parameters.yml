@@ -83,7 +83,7 @@ split:
   test_ratio: 0.15
   random_seed: 42
 
-# ─── Multi-Encoder Benchmarking ───────────────────────────────────────────────
+# ─── Benchmarking ───────────────────────────────────────────────────────────────
 benchmark:
   models:
     - name: "bert-base-uncased"
@@ -94,6 +94,19 @@ benchmark:
       display_name: "SEC-BERT (AUEB)"
     - name: "roberta-base"
       display_name: "RoBERTa Base"
+  encoder: "nlpaueb/sec-bert-base"
+  decoder_configs:
+    - decoder_type: "baseline"
+      display_name: "Baseline (15 queries)"
+      num_queries: 15
+    - decoder_type: "typed"
+      display_name: "Option A (Relation-Typed)"
+      num_queries: 15
+      queries_per_rel: 3
+    - decoder_type: "disentangled"
+      display_name: "Option B (Disentangled)"
+      num_queries: 15
+      span_d_model: 256
   epochs: 5
   learning_rate: 0.0001
   encoder_learning_rate: 0.00001

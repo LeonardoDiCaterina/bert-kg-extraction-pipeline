@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
+import numpy as np
 
 
 class SetCriterion(nn.Module):
@@ -10,11 +11,20 @@ class SetCriterion(nn.Module):
     Inspired by DETR (DEtection TRansformer).
     """
 
-    def __init__(self, num_relation_classes, num_entity_types, eos_coef=0.1, weight_dict=None, matcher_weight_dict=None):
+    def __init__(
+        self,
+        num_relation_classes,
+        num_entity_types,
+        eos_coef=0.1,
+        weight_dict=None,
+        matcher_weight_dict=None,
+        queries_per_rel=None,
+    ):
         super().__init__()
         self.num_relation_classes = num_relation_classes
         self.num_entity_types = num_entity_types
         self.eos_coef = eos_coef  # relative weight of the 'no_relation' (eos) class
+        self.queries_per_rel = queries_per_rel
 
         # Weights for the different parts of the loss
         if weight_dict is None:
@@ -127,6 +137,20 @@ class SetCriterion(nn.Module):
                 + self.matcher_weight_dict["loss_span"] * cost_span
             )
             C = C.cpu().numpy()
+
+            # For Option A: Relation-Typed Queries
+            if getattr(self, "queries_per_rel", None) is not None:
+                num_q = C.shape[0]
+                for t_idx, rel_id in enumerate(tgt_rels):
+                    r = rel_id.item()
+                    if r < self.num_relation_classes:
+                        q_start = r * self.queries_per_rel
+                        q_end = (r + 1) * self.queries_per_rel
+                        # Add a huge penalty to queries not designated for this relation type
+                        # We don't use np.inf to avoid scipy crashes if GT count > queries_per_rel
+                        mask = np.ones(num_q, dtype=bool)
+                        mask[q_start:q_end] = False
+                        C[mask, t_idx] += 1e6
 
             # Hungarian matching
             src_ind, tgt_ind = linear_sum_assignment(C)

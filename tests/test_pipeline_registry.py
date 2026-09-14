@@ -9,7 +9,8 @@ def test_register_pipelines():
     assert "data_prep" in pipelines
     assert "training" in pipelines
     assert "inference" in pipelines
-    assert "benchmark" in pipelines
+    assert "benchmark_encoders" in pipelines
+    assert "benchmark_decoders" in pipelines
 
     for name, pipe in pipelines.items():
         assert isinstance(pipe, Pipeline)

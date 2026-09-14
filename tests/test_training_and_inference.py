@@ -114,9 +114,9 @@ def test_inference_pipeline_node():
 
 
 @patch("bert_kg_mvp.pipelines.training.nodes.torch.optim.swa_utils.AveragedModel")
-@patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
-def test_train_model_node(mock_extractor_cls, mock_ema):
-    mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
+@patch("bert_kg_mvp.pipelines.training.nodes.build_decoder")
+def test_train_model_node(mock_build_decoder, mock_ema):
+    mock_build_decoder.side_effect = lambda decoder_type, **kwargs: MockExtractor(**kwargs)
     def mock_ema_factory(m, multi_avg_fn=None):
         ema = MagicMock()
         ema.update_parameters = MagicMock()
@@ -160,9 +160,9 @@ def test_train_model_node(mock_extractor_cls, mock_ema):
     assert trained_model_legacy is not None
 
 
-@patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
-def test_train_model_freeze_all(mock_extractor_cls):
-    mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
+@patch("bert_kg_mvp.pipelines.training.nodes.build_decoder")
+def test_train_model_freeze_all(mock_build_decoder):
+    mock_build_decoder.side_effect = lambda decoder_type, **kwargs: MockExtractor(**kwargs)
 
     dataset = make_dummy_dataset(n_samples=2, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
@@ -185,9 +185,9 @@ def test_train_model_freeze_all(mock_extractor_cls):
     assert trained_model is not None
 
 
-@patch("bert_kg_mvp.pipelines.training.nodes.DynamicKGExtractor")
-def test_train_model_with_compilation(mock_extractor_cls):
-    mock_extractor_cls.side_effect = lambda **kwargs: MockExtractor(**kwargs)
+@patch("bert_kg_mvp.pipelines.training.nodes.build_decoder")
+def test_train_model_with_compilation(mock_build_decoder):
+    mock_build_decoder.side_effect = lambda decoder_type, **kwargs: MockExtractor(**kwargs)
 
     dataset = make_dummy_dataset(n_samples=2, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()

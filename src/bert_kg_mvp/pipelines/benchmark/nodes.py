@@ -11,7 +11,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from bert_kg_mvp.models.architecture_2 import DynamicKGExtractor
 from bert_kg_mvp.models.bipartite_loss import SetCriterion
 from bert_kg_mvp.pipelines.data_prep.nodes import prepare_training_data
-from bert_kg_mvp.utils import split_by_company
+from bert_kg_mvp.utils.splitting import split_by_company
+from bert_kg_mvp.models import build_decoder
 
 
 def split_dataset_node(
@@ -275,6 +276,427 @@ def evaluate_model_on_test(
         "mean_error_distance": avg_error_dist,
         "avg_latency_ms": avg_latency,
     }
+
+
+def run_decoder_benchmark(
+    split_data: Dict[str, pd.DataFrame],
+    benchmark_params: Dict[str, Any],
+    data_prep_params: Dict[str, Any],
+    schema_params: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    """
+    Runs the multi-decoder benchmark using a fixed encoder.
+    """
+    decoder_configs = benchmark_params.get("decoder_configs", [])
+    if not decoder_configs:
+        # Fallback to single baseline config if missing
+        decoder_configs = [{"decoder_type": "baseline", "display_name": "Baseline"}]
+        
+    encoder_model_name = benchmark_params.get("encoder", "nlpaueb/sec-bert-base")
+    matmul_precision = benchmark_params.get("float32_matmul_precision", "high")
+    if matmul_precision and hasattr(torch, "set_float32_matmul_precision"):
+        torch.set_float32_matmul_precision(matmul_precision)
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else ("mps" if torch.backends.mps.is_available() else "cpu")
+    )
+
+    schema = schema_params or {}
+    relation_types = schema.get(
+        "relation_types",
+        ["has_metric", "produces", "operates_in", "reports_risk", "led_by"],
+    )
+    entity_types = schema.get(
+        "entity_types",
+        ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"],
+    )
+    num_relations = len(relation_types)
+    num_ent_types = len(entity_types)
+    no_relation_idx = num_relations
+
+    models_config = benchmark_params.get(
+        "models",
+        [
+            {"name": "bert-base-uncased", "display_name": "BERT Base"},
+            {"name": "ProsusAI/finbert", "display_name": "FinBERT (ProsusAI)"},
+            {"name": "nlpaueb/sec-bert-base", "display_name": "SEC-BERT (AUEB)"},
+            {"name": "roberta-base", "display_name": "RoBERTa Base"},
+        ],
+    )
+
+    epochs = benchmark_params.get("epochs", 5)
+    loss_weights = benchmark_params.get(
+        "loss_weights", 
+        {"loss_ce": 1.0, "loss_type": 1.0, "loss_span": 1.0}
+    )
+    eos_coef = benchmark_params.get("eos_coef", 0.1)
+    dynamic_unfreeze_epoch = benchmark_params.get("dynamic_unfreeze_epoch", 20)
+    matcher_weights = benchmark_params.get(
+        "matcher_weights", 
+        {"loss_ce": 2.0, "loss_type": 1.0, "loss_span": 0.25}
+    )
+    learning_rate = benchmark_params.get("learning_rate", 5e-5)
+    batch_size = benchmark_params.get("batch_size", 4)
+    accum_steps = benchmark_params.get("gradient_accumulation_steps", 8)
+    freeze_strategy = benchmark_params.get("freeze_strategy", "partial")
+    unfrozen_top_layers = benchmark_params.get("unfrozen_top_layers", 4)
+    num_queries = benchmark_params.get("num_queries", 15)
+    decoder_num_layers = benchmark_params.get("decoder_num_layers", 4)
+    d_model = benchmark_params.get("d_model", 768)
+
+    train_df = split_data["train"]
+    val_df = split_data["val"]
+    test_df = split_data["test"]
+
+    results: List[Dict[str, Any]] = []
+
+    print("\n========================================================")
+    print(f"Starting Decoder Benchmark ({len(decoder_configs)} variants configured) with encoder {encoder_model_name}")
+    print(
+        f"Device: {device} | Train samples: {len(train_df)} | Test samples: {len(test_df)}"
+    )
+    print("========================================================\n")
+
+    # 1. Prepare data with encoder-specific tokenizer ONCE
+    try:
+        encoder_prep_params = dict(data_prep_params)
+        train_tensors, tokenizer = prepare_training_data(
+            train_df,
+            data_prep_params=encoder_prep_params,
+            training_params={"encoder_model_name": encoder_model_name},
+            schema_params=schema_params,
+        )
+        val_tensors, _ = prepare_training_data(
+            val_df,
+            data_prep_params=encoder_prep_params,
+            training_params={"encoder_model_name": encoder_model_name},
+            schema_params=schema_params,
+        )
+        test_tensors, _ = prepare_training_data(
+            test_df,
+            data_prep_params=encoder_prep_params,
+            training_params={"encoder_model_name": encoder_model_name},
+            schema_params=schema_params,
+        )
+    except Exception as e:
+        print(f"Error preparing data for {encoder_model_name}: {e}")
+        return pd.DataFrame()
+
+    for config_entry in decoder_configs:
+        decoder_type = config_entry.get("decoder_type", "baseline")
+        display_name = config_entry.get("display_name", decoder_type)
+        
+        cfg_num_queries = config_entry.get("num_queries", num_queries)
+        cfg_queries_per_rel = config_entry.get("queries_per_rel", None)
+        cfg_span_d_model = config_entry.get("span_d_model", 256)
+
+        print(f"\n>>> Benchmarking Decoder: {display_name} ({decoder_type})")
+        
+        # Base kwargs for all decoders
+        kwargs = {
+            "encoder_model_name": encoder_model_name,
+            "d_model": d_model,
+            "num_layers": decoder_num_layers,
+            "num_relations": num_relations,
+            "num_ent_types": num_ent_types,
+            "freeze_strategy": freeze_strategy,
+            "unfrozen_top_layers": unfrozen_top_layers,
+        }
+
+        if decoder_type == "baseline":
+            kwargs["num_queries"] = cfg_num_queries
+        elif decoder_type == "typed":
+            kwargs["queries_per_rel"] = cfg_queries_per_rel if cfg_queries_per_rel is not None else cfg_num_queries // num_relations
+        elif decoder_type == "disentangled":
+            kwargs["num_queries"] = cfg_num_queries
+            kwargs["span_d_model"] = cfg_span_d_model
+
+        model = build_decoder(decoder_type, **kwargs).to(device)
+
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+        encoder_lr = benchmark_params.get("encoder_learning_rate", 1e-5)
+        encoder_params = []
+        decoder_params = []
+        for name, param in model.named_parameters():
+            if "encoder" in name:
+                encoder_params.append(param)
+            else:
+                decoder_params.append(param)
+                
+        weight_decay = benchmark_params.get("weight_decay", 0.05)
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": encoder_params, "lr": encoder_lr},
+                {"params": decoder_params, "lr": learning_rate},
+            ],
+            weight_decay=weight_decay
+        )
+        criterion = SetCriterion(
+            num_relation_classes=num_relations, 
+            num_entity_types=num_ent_types,
+            eos_coef=eos_coef,
+            weight_dict=loss_weights,
+            matcher_weight_dict=matcher_weights,
+            queries_per_rel=kwargs.get("queries_per_rel") if decoder_type == "typed" else None
+        ).to(device)
+
+        from bert_kg_mvp.utils.dataset import AugmentedKGDataset
+        prefix_end_token_id = tokenizer.convert_tokens_to_ids("]") if "]" in tokenizer.get_vocab() else None
+        pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+        mask_token_id = tokenizer.mask_token_id if tokenizer.mask_token_id is not None else pad_token_id
+        
+        train_ds = AugmentedKGDataset(
+            tensors_dict=train_tensors,
+            mask_token_id=mask_token_id,
+            pad_token_id=pad_token_id,
+            no_relation_idx=no_relation_idx,
+            prefix_end_token_id=prefix_end_token_id,
+            mask_prob=benchmark_params.get("mask_prob", 0.15),
+            prefix_drop_prob=benchmark_params.get("prefix_drop_prob", 0.15),
+            span_jitter_prob=benchmark_params.get("span_jitter_prob", 0.1)
+        )
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+        
+        import math
+        total_steps = math.ceil(len(train_loader) / accum_steps)
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=[encoder_lr, learning_rate],
+            epochs=epochs,
+            steps_per_epoch=total_steps,
+            pct_start=0.1,  # 10% warmup
+            div_factor=10.0,
+            final_div_factor=1e4
+        )
+        
+        from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
+        ema_decay = benchmark_params.get("ema_decay", 0.999)
+        ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
+
+        # 3. Train
+        if freeze_strategy == "all":
+            model.encoder.eval()
+        elif freeze_strategy == "partial":
+            model.encoder.eval()
+            encoder_layers = None
+            if hasattr(model.encoder, "encoder") and hasattr(
+                model.encoder.encoder, "layer"
+            ):
+                encoder_layers = model.encoder.encoder.layer
+            elif hasattr(model.encoder, "layer"):
+                encoder_layers = model.encoder.layer
+            if encoder_layers is not None:
+                for layer in encoder_layers[-unfrozen_top_layers:]:
+                    layer.train()
+
+        # Optional torch.compile acceleration
+        compile_model = benchmark_params.get("compile_model", False)
+        if compile_model:
+            if hasattr(torch, "compile"):
+                compile_mode = benchmark_params.get("compile_mode", "default")
+                try:
+                    print(
+                        f"Compiling {decoder_type} with torch.compile(mode='{compile_mode}')..."
+                    )
+                    model = torch.compile(model, mode=compile_mode)
+                except Exception as exc:
+                    print(
+                        f"Warning: torch.compile failed for {decoder_type} ({exc}). Proceeding uncompiled."
+                    )
+            else:
+                print(
+                    "torch.compile is not available in this PyTorch version. Proceeding uncompiled."
+                )
+
+        start_train_time = time.perf_counter()
+        
+        history = []
+        best_val_f1 = -1.0
+        patience_counter = 0
+        best_model_state = None
+        val_interval_epochs = benchmark_params.get("val_interval_epochs", 5)
+        patience = benchmark_params.get("early_stopping_patience", 3)
+        
+        for epoch in range(epochs):
+            model.train()
+            
+            # Dynamic Unfreezing
+            if epoch < dynamic_unfreeze_epoch:
+                model.encoder.eval()
+                for p in model.encoder.parameters():
+                    p.requires_grad = False
+            else:
+                model.encoder.train()
+                for p in model.encoder.parameters():
+                    p.requires_grad = True
+                    
+            optimizer.zero_grad()
+            total_loss = 0.0
+            epoch_losses = defaultdict(float)
+            
+            for step, batch in enumerate(train_loader):
+                batch = [b.to(device) for b in batch]
+                b_ids, b_mask, b_rels, b_st, b_ot, b_ss, b_os = batch
+                outputs = model(b_ids, b_mask)
+
+                targets = []
+                for i in range(b_ids.size(0)):
+                    valid_idx = b_rels[i] != no_relation_idx
+                    targets.append(
+                        {
+                            "relations": b_rels[i][valid_idx],
+                            "subj_types": b_st[i][valid_idx],
+                            "obj_types": b_ot[i][valid_idx],
+                            "subj_spans": b_ss[i][valid_idx],
+                            "obj_spans": b_os[i][valid_idx],
+                        }
+                    )
+
+                loss_dict = criterion(outputs, targets)
+                loss = sum(loss_dict.values())
+                (loss / accum_steps).backward()
+
+                if (step + 1) % accum_steps == 0 or (step + 1) == len(train_loader):
+                    optimizer.step()
+                    scheduler.step()
+                    ema_model.update_parameters(model)
+                    optimizer.zero_grad()
+                    
+                total_loss += loss.item()
+                for k, v in loss_dict.items():
+                    epoch_losses[k] += v.item()
+
+            avg_total = total_loss / len(train_loader)
+            avg_losses = {k: v / len(train_loader) for k, v in epoch_losses.items()}
+            
+            # Calculate L2 Norm of model parameters to show weight decay regularization effect
+            l2_norm = sum(p.norm(2).item() for p in model.parameters() if p.requires_grad)
+            
+            # Print at every epoch
+            avg_components = " | ".join([f"{k}: {v:.4f}" for k, v in avg_losses.items()])
+            print(f"  Epoch {epoch + 1}/{epochs} - Avg Total Loss: {avg_total:.4f} | {avg_components} | l2_norm: {l2_norm:.2f}")
+                
+            history_record = {"epoch": epoch + 1, "total_loss": avg_total}
+            history_record.update(avg_losses)
+            
+            if (epoch + 1) % val_interval_epochs == 0:
+                val_metrics = evaluate_model_on_test(
+                    model=ema_model,
+                    test_dataset=val_tensors,
+                    tokenizer=tokenizer,
+                    no_relation_idx=no_relation_idx,
+                    device=device,
+                    batch_size=batch_size,
+                )
+                val_f1 = val_metrics.get("strict_f1", 0.0)
+                print(
+                    f"  >>> [Validation @ Epoch {epoch + 1}] "
+                    f"Strict F1: {val_f1:.4f} | Span F1: {val_metrics.get('span_f1', 0.0):.4f} | "
+                    f"TypeAcc: {val_metrics.get('type_accuracy', 0.0):.2f} | RelAcc: {val_metrics.get('rel_accuracy', 0.0):.2f} | "
+                    f"TP: {val_metrics.get('tp', 0)} | Det: {val_metrics.get('detected', 0)} | "
+                    f"GT: {val_metrics.get('ground_truth', 0)} | MED: {val_metrics.get('mean_error_distance', 0.0):.2f}"
+                )
+                history_record["val_f1"] = val_f1
+                
+                if val_f1 > best_val_f1:
+                    best_val_f1 = val_f1
+                    patience_counter = 0
+                    best_model_state = copy.deepcopy(ema_model.module.state_dict())
+                else:
+                    patience_counter += 1
+                    
+                model.train()
+                
+            history.append(history_record)
+            
+            if patience_counter >= patience:
+                print(f"\n  [Early Stopping] No improvement for {patience} validation intervals. Stopping at Epoch {epoch + 1}.")
+                break
+            
+        if best_model_state is not None:
+            print(f"  [Restoring best weights] Reverting to model with Validation F1: {best_val_f1:.4f}")
+            
+            if compile_model and hasattr(torch, "compile"):
+                # torch.compile adds '_orig_mod.' prefix to all parameters in the OptimizedModule.
+                # Since we copied from ema_model, we need to add the prefix back.
+                compiled_state = {}
+                for k, v in best_model_state.items():
+                    if not k.startswith("_orig_mod."):
+                        compiled_state[f"_orig_mod.{k}"] = v
+                    else:
+                        compiled_state[k] = v
+                model.load_state_dict(compiled_state)
+            else:
+                model.load_state_dict(best_model_state)
+            
+        # Save tracking history to CSV
+        os.makedirs("data/08_reporting", exist_ok=True)
+        safe_model_name = decoder_type.replace("/", "_")
+        history_df = pd.DataFrame(history)
+        history_df.to_csv(f"data/08_reporting/loss_history_{safe_model_name}.csv", index=False)
+
+        total_train_sec = time.perf_counter() - start_train_time
+        sec_per_epoch = total_train_sec / max(1, epochs)
+
+        # 4. Evaluate on Test Split
+        test_metrics = evaluate_model_on_test(
+            model=model,
+            test_dataset=test_tensors,
+            tokenizer=tokenizer,
+            no_relation_idx=no_relation_idx,
+            device=device,
+            batch_size=batch_size,
+        )
+
+        results.append(
+            {
+                "decoder_type": decoder_type,
+                "display_name": display_name,
+                "test_strict_f1": round(test_metrics.get("strict_f1", 0.0), 4),
+                "test_span_f1": round(test_metrics.get("span_f1", 0.0), 4),
+                "test_type_acc": round(test_metrics.get("type_accuracy", 0.0), 4),
+                "test_rel_acc": round(test_metrics.get("rel_accuracy", 0.0), 4),
+                "tp": test_metrics.get("tp", 0),
+                "detected": test_metrics.get("detected", 0),
+                "ground_truth": test_metrics.get("ground_truth", 0),
+                "avg_error_dist": round(test_metrics.get("mean_error_distance", 0.0), 2),
+                "latency_ms_per_doc": round(test_metrics.get("avg_latency_ms", 0.0), 2),
+                "train_sec_per_epoch": round(sec_per_epoch, 2),
+                "total_params_m": round(total_params / 1e6, 2),
+                "trainable_params_m": round(trainable_params / 1e6, 2),
+            }
+        )
+
+        print(
+            f"Result for {display_name}: Strict F1={test_metrics.get('strict_f1', 0.0):.4f} | "
+            f"Span F1={test_metrics.get('span_f1', 0.0):.4f} | TypeAcc={test_metrics.get('type_accuracy', 0.0):.4f} | "
+            f"Latency={test_metrics.get('avg_latency_ms', 0.0):.2f}ms/doc | Train={sec_per_epoch:.2f}s/epoch"
+        )
+
+        # Cleanup memory before next encoder
+        del (
+            model,
+            optimizer,
+            criterion,
+            train_ds,
+            train_loader,
+        )
+        if str(device) == "cuda":
+            torch.cuda.empty_cache()
+        elif str(device) == "mps":
+            torch.mps.empty_cache()
+        gc.collect()
+
+    results_df = pd.DataFrame(results)
+    print("\n================ BENCHMARK SUMMARY TABLE ================")
+    if not results_df.empty:
+        print(results_df.to_string(index=False))
+    print("=========================================================\n")
+
+    return results_df
 
 
 def run_encoder_benchmark(

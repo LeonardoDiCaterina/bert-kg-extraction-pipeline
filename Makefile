@@ -84,9 +84,13 @@ smoke-train:
 	@echo "==> Running Student Training Smoke Test (1 epoch, batch size 2)..."
 	$(GPU_ENV) $(KEDRO) run --pipeline training --params training.epochs=1,training.batch_size=2,training.compile_model=false
 
-smoke-benchmark:
-	@echo "==> Running Benchmark Smoke Test (1 epoch, bert-base-uncased)..."
-	$(GPU_ENV) $(KEDRO) run --pipeline benchmark --params training.epochs=1
+smoke-benchmark-encoders:
+	@echo "==> Running Encoder Benchmark Smoke Test (1 epoch)..."
+	$(GPU_ENV) $(KEDRO) run --pipeline benchmark_encoders --params benchmark.epochs=1
+
+smoke-benchmark-decoders:
+	@echo "==> Running Decoder Benchmark Smoke Test (1 epoch)..."
+	$(GPU_ENV) $(KEDRO) run --pipeline benchmark_decoders --params benchmark.epochs=1
 # --- Production Execution Targets ---
 
 run-teacher:
@@ -99,11 +103,17 @@ run-train:
 	@echo "==> Starting Student Model Training Pipeline on GPU=$(GPU)..."
 	$(GPU_ENV) $(KEDRO) run --pipeline training
 
-run-benchmark:
+run-benchmark-encoders:
 	@echo "==> Launching Multi-Encoder Benchmark in background on GPU=$(GPU) with nohup..."
-	@$(GPU_ENV) nohup $(KEDRO) run --pipeline benchmark > benchmark.log 2>&1 & \
-		echo "Benchmark started in background! PID: $$!"
-	@echo "Monitor live logs with: tail -f benchmark.log"
+	@$(GPU_ENV) nohup $(KEDRO) run --pipeline benchmark_encoders > benchmark_encoders.log 2>&1 & \
+		echo "Encoder Benchmark started in background! PID: $$!"
+	@echo "Monitor live logs with: tail -f benchmark_encoders.log"
+
+run-benchmark-decoders:
+	@echo "==> Launching Multi-Decoder Benchmark in background on GPU=$(GPU) with nohup..."
+	@$(GPU_ENV) nohup $(KEDRO) run --pipeline benchmark_decoders > benchmark_decoders.log 2>&1 & \
+		echo "Decoder Benchmark started in background! PID: $$!"
+	@echo "Monitor live logs with: tail -f benchmark_decoders.log"
 
 # --- Maintenance ---
 
