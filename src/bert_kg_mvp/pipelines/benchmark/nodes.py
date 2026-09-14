@@ -956,6 +956,22 @@ def run_encoder_benchmark(
         val_interval_epochs = benchmark_params.get("val_interval_epochs", 5)
         patience = benchmark_params.get("early_stopping_patience", 3)
         
+        from bert_kg_mvp.utils.checkpointer import ModelCheckpointer
+        checkpoint_config = benchmark_params.get("checkpointing", {})
+        use_checkpointing = checkpoint_config.get("enabled", False)
+        
+        if use_checkpointing:
+            checkpointer = ModelCheckpointer(
+                checkpoint_dir=checkpoint_config.get("dirpath", "data/06_models/checkpoints"),
+                model_name=decoder_type,
+                mode="max",
+                save_top_k=checkpoint_config.get("save_top_k", 1),
+                save_last=checkpoint_config.get("save_last", True),
+            )
+        else:
+            checkpointer = None
+        
+        
         for epoch in range(epochs):
             model.train()
             
@@ -1037,8 +1053,23 @@ def run_encoder_benchmark(
                 )
                 history_record["val_f1"] = val_f1
                 
-                if val_f1 > best_val_f1:
-                    best_val_f1 = val_f1
+                if use_checkpointing:
+                    is_best = checkpointer.save_checkpoint(
+                        epoch=epoch + 1,
+                        model=ema_model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        metric_value=val_f1
+                    )
+                    # We still update best_val_f1 manually so the patience logic triggers
+                    if is_best:
+                        best_val_f1 = val_f1
+                else:
+                    is_best = val_f1 > best_val_f1
+                    
+                if is_best:
+                    if not use_checkpointing:
+                        best_val_f1 = val_f1
                     patience_counter = 0
                     best_model_state = copy.deepcopy(ema_model.module.state_dict())
                 else:

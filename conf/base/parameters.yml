@@ -139,6 +139,13 @@ benchmark:
   span_jitter_prob: 0.15       # Span boundary jittering probability
   ema_decay: 0.999             # Exponential Moving Average decay rate
 
+# ─── Checkpointing ──────────────────────────────────────────────────────────────
+checkpointing:
+  enabled: true
+  dirpath: "data/06_models/checkpoints"
+  save_top_k: 1
+  save_last: true
+
 # ─── EvalBench Pipeline ─────────────────────────────────────────────────────────
 evalbench:
   sample_size: 100               # Number of predicted triples to randomly sample

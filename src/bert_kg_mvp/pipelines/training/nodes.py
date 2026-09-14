@@ -169,6 +169,21 @@ def train_model(
     ema_decay = training_params.get("ema_decay", 0.999)
     ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
 
+    checkpoint_config = training_params.get("checkpointing", {})
+    use_checkpointing = checkpoint_config.get("enabled", False)
+    
+    if use_checkpointing:
+        from bert_kg_mvp.utils.checkpointer import ModelCheckpointer
+        checkpointer = ModelCheckpointer(
+            checkpoint_dir=checkpoint_config.get("dirpath", "data/06_models/checkpoints"),
+            model_name="production_model",
+            mode="min",  # Minimizing training loss
+            save_top_k=checkpoint_config.get("save_top_k", 1),
+            save_last=checkpoint_config.get("save_last", True),
+        )
+    else:
+        checkpointer = None
+
     for epoch in range(epochs):
         total_loss = 0.0
         epoch_losses = defaultdict(float)
@@ -239,6 +254,15 @@ def train_model(
         history_record = {"epoch": epoch + 1, "total_loss": avg_total}
         history_record.update(avg_losses)
         history.append(history_record)
+        
+        if use_checkpointing:
+            checkpointer.save_checkpoint(
+                epoch=epoch + 1,
+                model=ema_model,
+                optimizer=optimizer,
+                scheduler=None,
+                metric_value=avg_total
+            )
 
     # Save tracking history to CSV
     os.makedirs("data/08_reporting", exist_ok=True)
