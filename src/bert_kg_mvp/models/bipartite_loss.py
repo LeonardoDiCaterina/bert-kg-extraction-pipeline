@@ -4,6 +4,41 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 import numpy as np
 
+def compute_1d_giou(expected_coords, targets):
+    """
+    Computes the 1D Generalized Intersection over Union (GIoU) loss.
+    expected_coords: list of two tensors [expected_start, expected_end], each of shape (N,)
+    targets: tensor of shape (N, 2)
+    """
+    p_start, p_end = expected_coords[0], expected_coords[1]
+    t_start, t_end = targets[:, 0].float(), targets[:, 1].float()
+
+    # Ensure start <= end for valid intervals
+    p_min = torch.min(p_start, p_end)
+    p_max = torch.max(p_start, p_end)
+    
+    t_min = torch.min(t_start, t_end)
+    t_max = torch.max(t_start, t_end)
+
+    # Intersection
+    i_min = torch.max(p_min, t_min)
+    i_max = torch.min(p_max, t_max)
+    intersection = (i_max - i_min).clamp(min=0)
+
+    # Union
+    union = (p_max - p_min) + (t_max - t_min) - intersection + 1e-6
+
+    iou = intersection / union
+
+    # Smallest enclosing convex set
+    c_min = torch.min(p_min, t_min)
+    c_max = torch.max(p_max, t_max)
+    c_len = (c_max - c_min).clamp(min=1e-6)
+
+    giou = iou - (c_len - union) / c_len
+
+    return (1 - giou).mean()
+
 def multiclass_focal_loss(inputs, targets, alpha=None, gamma=2.0, reduction='mean', label_smoothing=0.0):
     """
     Focal loss for multi-class classification.
@@ -71,6 +106,7 @@ class SetCriterion(nn.Module):
                 "loss_ce": 1.0,  # Relation classification
                 "loss_type": 1.0,  # Entity type classification
                 "loss_span": 1.0,  # Pointer network span extraction
+                "loss_giou": 1.0,  # 1D GIoU for span sequences
             }
         else:
             self.weight_dict = weight_dict
@@ -80,6 +116,7 @@ class SetCriterion(nn.Module):
                 "loss_ce": 1.0,
                 "loss_type": 1.0,
                 "loss_span": 1.0,
+                "loss_giou": 0.0,  # Matcher doesn't use GIoU, only discrete probs
             }
         else:
             self.matcher_weight_dict = matcher_weight_dict
@@ -278,5 +315,23 @@ class SetCriterion(nn.Module):
             + F.cross_entropy(src_obj_end, target_obj_spans[:, 1])
         ) / 4
         losses["loss_span"] = loss_span * self.weight_dict["loss_span"]
+
+        # 4. 1D GIoU Loss (Soft-Argmax)
+        if "loss_giou" in self.weight_dict and self.weight_dict["loss_giou"] > 0:
+            seq_len = src_subj_start.size(1)
+            positions = torch.arange(seq_len, device=src_subj_start.device, dtype=torch.float32)
+
+            # Subject expected coordinates
+            exp_subj_start = torch.sum(F.softmax(src_subj_start, dim=-1) * positions, dim=-1)
+            exp_subj_end = torch.sum(F.softmax(src_subj_end, dim=-1) * positions, dim=-1)
+            loss_giou_subj = compute_1d_giou([exp_subj_start, exp_subj_end], target_subj_spans)
+
+            # Object expected coordinates
+            exp_obj_start = torch.sum(F.softmax(src_obj_start, dim=-1) * positions, dim=-1)
+            exp_obj_end = torch.sum(F.softmax(src_obj_end, dim=-1) * positions, dim=-1)
+            loss_giou_obj = compute_1d_giou([exp_obj_start, exp_obj_end], target_obj_spans)
+
+            loss_giou = (loss_giou_subj + loss_giou_obj) / 2
+            losses["loss_giou"] = loss_giou * self.weight_dict["loss_giou"]
 
         return losses
