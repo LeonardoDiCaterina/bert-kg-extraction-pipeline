@@ -4,6 +4,45 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 import numpy as np
 
+def multiclass_focal_loss(inputs, targets, alpha=None, gamma=2.0, reduction='mean', label_smoothing=0.0):
+    """
+    Focal loss for multi-class classification.
+    inputs: [..., C] (e.g. [batch, queries, classes])
+    targets: [...] (e.g. [batch, queries])
+    """
+    C = inputs.size(-1)
+    inputs_flat = inputs.reshape(-1, C)
+    targets_flat = targets.reshape(-1)
+
+    # Standard Cross Entropy computes -alpha[y] * log(p_t)
+    ce_loss = F.cross_entropy(
+        inputs_flat, 
+        targets_flat, 
+        weight=alpha, 
+        reduction='none', 
+        label_smoothing=label_smoothing
+    )
+
+    # Get the probabilities of the target classes (p_t)
+    probs = F.softmax(inputs_flat, dim=-1)
+    pt = probs.gather(-1, targets_flat.unsqueeze(-1)).squeeze(-1)
+
+    # Compute focal term
+    focal_term = (1 - pt) ** gamma
+    loss = focal_term * ce_loss
+
+    if reduction == 'mean':
+        if alpha is not None:
+            # Emulate PyTorch's cross_entropy weighted mean behavior: divide by sum of weights
+            alpha_t = alpha.gather(0, targets_flat)
+            return loss.sum() / alpha_t.sum().clamp(min=1e-5)
+        else:
+            return loss.mean()
+    elif reduction == 'sum':
+        return loss.sum()
+    
+    return loss.view(targets.shape)
+
 
 class SetCriterion(nn.Module):
     """
@@ -192,8 +231,8 @@ class SetCriterion(nn.Module):
             )
             target_classes[idx] = target_classes_o
 
-        loss_ce = F.cross_entropy(
-            src_logits.transpose(1, 2), target_classes, weight=self.empty_weight, label_smoothing=0.1
+        loss_ce = multiclass_focal_loss(
+            src_logits, target_classes, alpha=self.empty_weight, gamma=2.0, label_smoothing=0.1
         )
 
         losses = {"loss_ce": loss_ce * self.weight_dict["loss_ce"]}

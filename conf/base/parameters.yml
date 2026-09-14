@@ -116,8 +116,8 @@ benchmark:
   early_stopping_patience: 3
   loss_weights:
     loss_ce: 1.0
-    loss_type: 2.0
-    loss_span: 0.4
+    loss_type: 1.0
+    loss_span: 1.5
   matcher_weights:
     loss_ce: 2.0
     loss_type: 1.0
