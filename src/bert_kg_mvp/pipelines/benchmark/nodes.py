@@ -992,6 +992,7 @@ def run_encoder_benchmark(
                 mode="max",
                 save_top_k=checkpoint_config.get("save_top_k", 1),
                 save_last=checkpoint_config.get("save_last", True),
+                save_every_n_epochs=checkpoint_config.get("save_every_n_epochs", 0),
             )
         else:
             checkpointer = None

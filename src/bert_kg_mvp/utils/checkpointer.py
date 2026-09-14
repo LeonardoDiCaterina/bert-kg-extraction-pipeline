@@ -17,6 +17,7 @@ class ModelCheckpointer:
         mode: str = "max",
         save_top_k: int = 1,
         save_last: bool = True,
+        save_every_n_epochs: int = 0,
     ):
         """
         Args:
@@ -25,6 +26,7 @@ class ModelCheckpointer:
             mode (str): 'max' (e.g. for F1) or 'min' (e.g. for Loss).
             save_top_k (int): Number of best checkpoints to keep.
             save_last (bool): Whether to always save the latest epoch for fault tolerance.
+            save_every_n_epochs (int): If > 0, unconditionally save a snapshot every N epochs.
         """
         self.checkpoint_dir = os.path.join(checkpoint_dir, model_name)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
@@ -33,6 +35,7 @@ class ModelCheckpointer:
         self.mode = mode
         self.save_top_k = save_top_k
         self.save_last = save_last
+        self.save_every_n_epochs = save_every_n_epochs
 
         # Track the best metrics (list of tuples: (metric_value, filepath))
         self.best_checkpoints = []
@@ -100,5 +103,10 @@ class ModelCheckpointer:
                     removed_metric, removed_path = self.best_checkpoints.pop(-1)
                     if os.path.exists(removed_path):
                         os.remove(removed_path)
+
+        # 3. Save Interval Snapshot
+        if self.save_every_n_epochs > 0 and epoch % self.save_every_n_epochs == 0:
+            snapshot_path = os.path.join(self.checkpoint_dir, f"epoch_{epoch}.pt")
+            torch.save(checkpoint_state, snapshot_path)
 
         return is_new_best
