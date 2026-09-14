@@ -66,18 +66,25 @@ def split_dataset_node(
 
 
 def evaluate_model_on_test(
-    model: DynamicKGExtractor,
-    test_dataset: Dict[str, torch.Tensor],
+    model: torch.nn.Module,
+    test_dataset: TensorDataset,
     tokenizer: Any,
     no_relation_idx: int,
     device: torch.device,
-    batch_size: int = 4,
-) -> Dict[str, Any]:
+    batch_size: int = 16,
+) -> Dict[str, float]:
     """
-    Evaluates a trained DynamicKGExtractor model on test tensors using strict 5-tuple matching
-    along with hierarchical diagnostic metrics (span F1, type accuracy, relation accuracy).
-    Returns a dictionary of metrics.
+    Evaluates the model on the test dataset and returns Exact-Match Strict F1 and latency.
     """
+    import numpy as np
+    
+    def jaccard_similarity(s1: str, s2: str) -> float:
+        set1 = set(s1.lower().split())
+        set2 = set(s2.lower().split())
+        if not set1 or not set2:
+            return 0.0
+        return len(set1 & set2) / len(set1 | set2)
+
     model.eval()
     input_ids = test_dataset["input_ids"]
     attention_mask = test_dataset["attention_mask"]
@@ -102,11 +109,13 @@ def evaluate_model_on_test(
     
     per_rel_tp = Counter()
     per_rel_fp = Counter()
-    per_rel_fn = Counter()
+    per_rel_fn = defaultdict(int)
 
     total_error_distance = 0.0
     error_count = 0
     comp_errors = {"subj_span": 0, "subj_type": 0, "rel": 0, "obj_span": 0, "obj_type": 0}
+    
+    jaccard_scores = []
     latencies: List[float] = []
 
     with torch.no_grad():
@@ -244,10 +253,14 @@ def evaluate_model_on_test(
                     total_error_distance += min_dist
                     error_count += 1
                     
-                    if best_fn[0] != fp[0]: comp_errors["subj_span"] += 1
+                    if best_fn[0] != fp[0]: 
+                        comp_errors["subj_span"] += 1
+                        jaccard_scores.append(jaccard_similarity(fp[0], best_fn[0]))
                     if best_fn[1] != fp[1]: comp_errors["subj_type"] += 1
                     if best_fn[2] != fp[2]: comp_errors["rel"] += 1
-                    if best_fn[3] != fp[3]: comp_errors["obj_span"] += 1
+                    if best_fn[3] != fp[3]: 
+                        comp_errors["obj_span"] += 1
+                        jaccard_scores.append(jaccard_similarity(fp[3], best_fn[3]))
                     if best_fn[4] != fp[4]: comp_errors["obj_type"] += 1
 
             del b_ids, b_mask, outputs
@@ -276,6 +289,14 @@ def evaluate_model_on_test(
         "obj_span_err_rate": comp_errors["obj_span"] / err_n,
         "obj_type_err_rate": comp_errors["obj_type"] / err_n,
     }
+    
+    # Calculate Mean, Median, Std Dev of Token Overlap Jaccard Similarity
+    if jaccard_scores:
+        j_mean = float(np.mean(jaccard_scores))
+        j_median = float(np.median(jaccard_scores))
+        j_std = float(np.std(jaccard_scores))
+    else:
+        j_mean = j_median = j_std = 0.0
 
     return {
         "strict_precision": precision,
@@ -298,6 +319,9 @@ def evaluate_model_on_test(
         "per_rel_fp": dict(per_rel_fp),
         "per_rel_fn": dict(per_rel_fn),
         "mean_error_distance": avg_error_dist,
+        "jaccard_mean": j_mean,
+        "jaccard_median": j_median,
+        "jaccard_std": j_std,
         "avg_latency_ms": avg_latency,
         **comp_error_rates,
     }
@@ -622,7 +646,8 @@ def run_decoder_benchmark(
                     f"Strict F1: {val_f1:.4f} | Span F1: {val_metrics.get('span_f1', 0.0):.4f} | "
                     f"TypeAcc: {val_metrics.get('type_accuracy', 0.0):.2f} | RelAcc: {val_metrics.get('rel_accuracy', 0.0):.2f} | "
                     f"TP: {val_metrics.get('tp', 0)} | Det: {val_metrics.get('detected', 0)} | "
-                    f"GT: {val_metrics.get('ground_truth', 0)} | MED: {val_metrics.get('mean_error_distance', 0.0):.2f}"
+                    f"GT: {val_metrics.get('ground_truth', 0)} | MED: {val_metrics.get('mean_error_distance', 0.0):.2f} | "
+                    f"Jaccard (Mean/Med/Std): {val_metrics.get('jaccard_mean', 0.0):.2f} / {val_metrics.get('jaccard_median', 0.0):.2f} / {val_metrics.get('jaccard_std', 0.0):.2f}"
                 )
                 history_record["val_f1"] = val_f1
                 
@@ -1049,7 +1074,8 @@ def run_encoder_benchmark(
                     f"Strict F1: {val_f1:.4f} | Span F1: {val_metrics.get('span_f1', 0.0):.4f} | "
                     f"TypeAcc: {val_metrics.get('type_accuracy', 0.0):.2f} | RelAcc: {val_metrics.get('rel_accuracy', 0.0):.2f} | "
                     f"TP: {val_metrics.get('tp', 0)} | Det: {val_metrics.get('detected', 0)} | "
-                    f"GT: {val_metrics.get('ground_truth', 0)} | MED: {val_metrics.get('mean_error_distance', 0.0):.2f}"
+                    f"GT: {val_metrics.get('ground_truth', 0)} | MED: {val_metrics.get('mean_error_distance', 0.0):.2f} | "
+                    f"Jaccard (Mean/Med/Std): {val_metrics.get('jaccard_mean', 0.0):.2f} / {val_metrics.get('jaccard_median', 0.0):.2f} / {val_metrics.get('jaccard_std', 0.0):.2f}"
                 )
                 history_record["val_f1"] = val_f1
                 
