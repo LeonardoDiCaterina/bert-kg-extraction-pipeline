@@ -163,25 +163,27 @@ def evaluate_model_on_test(
                 for q in range(num_queries):
                     rel = rel_preds[b, q].item()
                     if rel != no_relation_idx:
-                        # Subject span
+                        # Subject span — decode only the specific tokens pointed to by active slots
                         s_slots = subj_slot_preds[b, q]
                         s_active = s_slots[s_slots < outputs["subj_slot_logits"].size(-1) - 1]
                         if len(s_active) == 0:
                             continue
-                        s_start, s_end = s_active.min().item(), s_active.max().item()
+                        s_token_indices = sorted(s_active.tolist())
+                        s_token_ids = b_ids[b, s_token_indices]
 
-                        # Object span
+                        # Object span — decode only the specific tokens pointed to by active slots
                         o_slots = obj_slot_preds[b, q]
                         o_active = o_slots[o_slots < outputs["obj_slot_logits"].size(-1) - 1]
                         if len(o_active) == 0:
                             continue
-                        o_start, o_end = o_active.min().item(), o_active.max().item()
+                        o_token_indices = sorted(o_active.tolist())
+                        o_token_ids = b_ids[b, o_token_indices]
 
                         pred_subj = tokenizer.decode(
-                            b_ids[b, s_start : s_end + 1], skip_special_tokens=True
+                            s_token_ids, skip_special_tokens=True
                         ).strip()
                         pred_obj = tokenizer.decode(
-                            b_ids[b, o_start : o_end + 1], skip_special_tokens=True
+                            o_token_ids, skip_special_tokens=True
                         ).strip()
                         
                         stype = subj_type_preds[b, q].item()
