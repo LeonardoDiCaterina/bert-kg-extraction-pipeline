@@ -207,7 +207,7 @@ def prepare_training_data(
         # without requiring architectural changes.
         # Format: "[AAPL | 2024 | Item 7 – MD&A] <original text>"
         if use_context_prefix:
-            prefix_parts = [p for p in [ticker, year, section] if p and p.lower() not in ("nan", "unknown")]
+            prefix_parts = [p for p in [ticker, year, section] if p]
             if prefix_parts:
                 text = f"[{' | '.join(prefix_parts)}] {text}"
 
