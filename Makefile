@@ -100,8 +100,10 @@ run-teacher:
 	@echo "Monitor live logs with: tail -f teacher_distill.log"
 
 run-train:
-	@echo "==> Starting Student Model Training Pipeline on GPU=$(GPU)..."
-	$(GPU_ENV) $(KEDRO) run --pipeline training
+	@echo "==> Launching Student Model Training Pipeline in background on GPU=$(GPU) with nohup..."
+	@$(GPU_ENV) nohup $(KEDRO) run --pipeline training > training.log 2>&1 & \
+		echo "Training started in background! PID: $$!"
+	@echo "Monitor live logs with: tail -f training.log"
 
 run-benchmark-encoders:
 	@echo "==> Launching Multi-Encoder Benchmark in background on GPU=$(GPU) with nohup..."
