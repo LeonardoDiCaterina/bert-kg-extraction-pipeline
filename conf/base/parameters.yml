@@ -52,7 +52,7 @@ teacher:
 
 # ─── Student Model Training ───────────────────────────────────────────────────
 training:
-  encoder_model_name: "bert-base-uncased"
+  encoder_model_name: "nlpaueb/sec-bert-base"
   decoder_num_layers: 4
   num_queries: 15
   freeze_strategy: "partial"   # options: "all", "partial", "none"
