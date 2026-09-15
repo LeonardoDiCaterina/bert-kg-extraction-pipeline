@@ -68,15 +68,25 @@ def generate_evaluation_report(
     import os
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        # Handle DataParallel/Compiled state dict keys if present
-        state_dict = checkpoint["model_state_dict"]
-        unwrapped_state_dict = {}
-        for k, v in state_dict.items():
-            new_key = k.replace("_orig_mod.", "").replace("module.", "")
-            unwrapped_state_dict[new_key] = v
+        
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            # Checkpoint from our ModelCheckpointer
+            state_dict = checkpoint["model_state_dict"]
+            unwrapped_state_dict = {}
+            for k, v in state_dict.items():
+                new_key = k.replace("_orig_mod.", "").replace("module.", "")
+                unwrapped_state_dict[new_key] = v
+            model.load_state_dict(unwrapped_state_dict)
+            logger.info("Checkpoint state_dict loaded successfully.")
+        elif isinstance(checkpoint, torch.nn.Module):
+            # Full model object from PickleDataset
+            model = checkpoint
+            logger.info("Full model object loaded successfully.")
+        elif isinstance(checkpoint, dict):
+            # Raw state dict
+            model.load_state_dict(checkpoint)
+            logger.info("Raw state_dict loaded successfully.")
             
-        model.load_state_dict(unwrapped_state_dict)
-        logger.info("Checkpoint loaded successfully.")
     else:
         logger.warning(f"Checkpoint not found at {checkpoint_path}. Proceeding with UNTRAINED model for smoke testing.")
         
