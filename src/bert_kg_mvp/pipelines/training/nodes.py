@@ -41,6 +41,9 @@ def train_model(
     num_relations = len(relation_types)
     num_ent_types = len(entity_types)
     no_relation_idx = num_relations
+    id_to_rel = {i: r for i, r in enumerate(relation_types)}
+    id_to_rel[no_relation_idx] = "no_relation"
+    id_to_ent = {i: e for i, e in enumerate(entity_types)}
 
     # Extract dynamic architecture parameters
     encoder_model_name = training_params.get("encoder_model_name", "bert-base-uncased")
@@ -309,6 +312,13 @@ def train_model(
                 batch_size=batch_size,
                 confidence_threshold=confidence_threshold,
             )
+            gt_count = val_metrics.get("ground_truth", 0)
+            det_count = val_metrics.get("detected", 0)
+            tp_count = val_metrics.get("tp", 0)
+            fp_count = val_metrics.get("fp", 0)
+            fn_count = val_metrics.get("fn", 0)
+            print(f"Validation Triples (GT):     {gt_count}")
+            print(f"Validation Triples (Extr):   {det_count} (TP: {tp_count}, FP: {fp_count}, FN: {fn_count})")
             print(f"Validation F1 (Exact Match): {val_metrics.get('strict_f1', 0.0):.4f}")
             print(f"Validation Tuple Prec:       {val_metrics.get('tuple_precision', 0.0):.4f}")
             print(f"Validation Tuple Rec:        {val_metrics.get('tuple_recall', 0.0):.4f}")
@@ -324,8 +334,36 @@ def train_model(
             print(f"Validation MED:              {val_metrics.get('mean_error_distance', 0.0):.4f}")
             print(f"Validation Jaccard Mean:     {val_metrics.get('jaccard_mean', 0.0):.4f}")
             print(f"Validation Jaccard Median:   {val_metrics.get('jaccard_median', 0.0):.4f}")
-            print(f"Validation Jaccard Std:      {val_metrics.get('jaccard_std', 0.0):.4f}\n")
+            print(f"Validation Jaccard Std:      {val_metrics.get('jaccard_std', 0.0):.4f}")
+
+            # Qualitative Triples Samples
+            sample_triples = val_metrics.get("sample_triples", [])
+            if sample_triples:
+                print("  --- Sample Extracted vs Ground Truth Triples ---")
+                for s in sample_triples[:3]:
+                    print(f"  [Chunk {s['sample_idx']}]")
+                    if s["true_triples"]:
+                        for t in s["true_triples"]:
+                            r_name = id_to_rel.get(t[2], str(t[2]))
+                            st_name = id_to_ent.get(t[1], str(t[1]))
+                            ot_name = id_to_ent.get(t[4], str(t[4]))
+                            print(f"    ✅ GT:   ({t[0]!r} [{st_name}], {r_name}, {t[3]!r} [{ot_name}])")
+                    else:
+                        print("    ✅ GT:   <None>")
+                    if s["pred_triples"]:
+                        for p in s["pred_triples"]:
+                            r_name = id_to_rel.get(p[2], str(p[2]))
+                            st_name = id_to_ent.get(p[1], str(p[1]))
+                            ot_name = id_to_ent.get(p[4], str(p[4]))
+                            status = "MATCH" if p in s.get("tp_triples", []) else "FP"
+                            print(f"    🤖 Extr [{status}]: ({p[0]!r} [{st_name}], {r_name}, {p[3]!r} [{ot_name}])")
+                    else:
+                        print("    🤖 Extr: <None>")
+            print()
             
+            history_record["val_gt_triples"] = gt_count
+            history_record["val_extr_triples"] = det_count
+            history_record["val_tp_triples"] = tp_count
             history_record["val_strict_f1"] = val_metrics.get('strict_f1', 0.0)
             history_record["val_tuple_prec"] = val_metrics.get('tuple_precision', 0.0)
             history_record["val_tuple_rec"] = val_metrics.get('tuple_recall', 0.0)

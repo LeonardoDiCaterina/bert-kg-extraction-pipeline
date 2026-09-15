@@ -174,6 +174,8 @@ def run_mvp_inference(
     f1 = 2 * (precision * recall) / max((precision + recall), 1e-9)
 
     print("\n" + "=" * 40)
+    print(f"Ground Truth Triples:{true_positives + false_negatives}")
+    print(f"Extracted Triples:   {true_positives + false_positives} (TP: {true_positives}, FP: {false_positives}, FN: {false_negatives})")
     print(f"Validation F1 Score: {f1:.4f}")
     print(f"Precision:           {precision:.4f}")
     print(f"Recall:              {recall:.4f}")

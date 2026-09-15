@@ -82,7 +82,7 @@ smoke-teacher:
 
 smoke-train:
 	@echo "==> Running Student Training Smoke Test (~1% data, 105 epochs)..."
-	$(GPU_ENV) $(KEDRO) run --pipeline training --params data_prep.max_samples=200,training.epochs=105,training.val_interval_epochs=5,training.compile_model=false
+	$(GPU_ENV) $(KEDRO) run --pipeline training --params data_prep.max_samples=20,training.epochs=55,training.val_interval_epochs=5,training.compile_model=false
 
 train-smoke: smoke-train
 

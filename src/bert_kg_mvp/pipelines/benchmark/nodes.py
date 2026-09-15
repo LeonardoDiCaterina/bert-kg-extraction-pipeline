@@ -125,6 +125,7 @@ def evaluate_model_on_test(
     latencies: List[float] = []
     all_fg_probs = []
     all_no_rel_probs = []
+    sample_triples: List[Dict[str, Any]] = []
 
     with torch.no_grad():
         for i in range(0, total_samples, batch_size):
@@ -219,6 +220,14 @@ def evaluate_model_on_test(
                 true_positives += len(tp_set)
                 false_positives += len(fp_set)
                 false_negatives += len(fn_set)
+                
+                if len(sample_triples) < 3 and (len(true_set) > 0 or len(pred_set) > 0):
+                    sample_triples.append({
+                        "sample_idx": i + b,
+                        "true_triples": sorted(list(true_set)),
+                        "pred_triples": sorted(list(pred_set)),
+                        "tp_triples": sorted(list(tp_set)),
+                    })
                 
                 # Entity tracking (span text + entity type)
                 pred_entities = set()
@@ -358,6 +367,7 @@ def evaluate_model_on_test(
         "fn": false_negatives,
         "detected": true_positives + false_positives,
         "ground_truth": true_positives + false_negatives,
+        "sample_triples": sample_triples,
         "span_precision": span_precision,
         "span_recall": span_recall,
         "span_f1": span_f1,
