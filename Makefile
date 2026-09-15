@@ -81,8 +81,10 @@ smoke-teacher:
 	$(GPU_ENV) $(KEDRO) run --nodes generate_teacher_triplets_node --params teacher.max_samples=5,teacher.batch_size=5
 
 smoke-train:
-	@echo "==> Running Student Training Smoke Test (1 epoch, batch size 2)..."
-	$(GPU_ENV) $(KEDRO) run --pipeline training --params training.epochs=1,training.batch_size=2,training.compile_model=false
+	@echo "==> Running Student Training Smoke Test (~1% data, 1 epoch)..."
+	$(GPU_ENV) $(KEDRO) run --pipeline training --params data_prep.max_samples=200,training.epochs=1,training.val_interval_epochs=1,training.compile_model=false
+
+train-smoke: smoke-train
 
 smoke-benchmark-encoders:
 	@echo "==> Running Encoder Benchmark Smoke Test (1 epoch)..."
