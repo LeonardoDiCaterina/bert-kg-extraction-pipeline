@@ -3,7 +3,7 @@ from bert_kg_mvp.models.bipartite_loss import SetCriterion
 
 
 def make_dummy_outputs(
-    batch_size=2, num_queries=5, seq_len=16, num_relations=3, num_entity_types=4
+    batch_size=2, num_queries=5, seq_len=16, num_relations=3, num_entity_types=4, num_token_slots=8
 ):
     return {
         "rel_logits": torch.randn(
@@ -15,17 +15,11 @@ def make_dummy_outputs(
         "obj_type_logits": torch.randn(
             batch_size, num_queries, num_entity_types, requires_grad=True
         ),
-        "subj_start_logits": torch.randn(
-            batch_size, num_queries, seq_len, requires_grad=True
+        "subj_slot_logits": torch.randn(
+            batch_size, num_queries, num_token_slots, seq_len + 1, requires_grad=True
         ),
-        "subj_end_logits": torch.randn(
-            batch_size, num_queries, seq_len, requires_grad=True
-        ),
-        "obj_start_logits": torch.randn(
-            batch_size, num_queries, seq_len, requires_grad=True
-        ),
-        "obj_end_logits": torch.randn(
-            batch_size, num_queries, seq_len, requires_grad=True
+        "obj_slot_logits": torch.randn(
+            batch_size, num_queries, num_token_slots, seq_len + 1, requires_grad=True
         ),
     }
 
@@ -62,7 +56,8 @@ def test_set_criterion_forward_with_targets():
     losses = criterion(outputs, targets)
     assert "loss_ce" in losses
     assert "loss_type" in losses
-    assert "loss_span" in losses
+    assert "loss_token" in losses
+    assert "loss_contig" in losses
 
     total_loss = sum(losses.values())
     assert total_loss.item() > 0
@@ -94,5 +89,6 @@ def test_set_criterion_empty_targets():
     losses = criterion(outputs, targets)
     assert "loss_ce" in losses
     assert "loss_type" not in losses
-    assert "loss_span" not in losses
+    assert "loss_token" not in losses
+    assert "loss_contig" not in losses
     assert losses["loss_ce"].item() > 0

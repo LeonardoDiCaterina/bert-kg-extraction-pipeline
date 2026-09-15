@@ -62,10 +62,8 @@ def test_run_encoder_benchmark_mock(mock_model_cls, mock_prep_data):
         "rel_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device, requires_grad=True),
         "subj_type_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device),
         "obj_type_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device),
-        "subj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
-        "subj_end_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
-        "obj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
-        "obj_end_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
+        "subj_slot_logits": torch.zeros((ids.size(0), 2, 8, 9), device=ids.device),
+        "obj_slot_logits": torch.zeros((ids.size(0), 2, 8, 9), device=ids.device),
     }
     mock_model_cls.return_value = mock_instance
 
@@ -120,10 +118,8 @@ def test_run_decoder_benchmark_mock(mock_build_decoder, mock_prep_data):
         "rel_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device, requires_grad=True),
         "subj_type_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device),
         "obj_type_logits": torch.zeros((ids.size(0), 2, 6), device=ids.device),
-        "subj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
-        "subj_end_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
-        "obj_start_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
-        "obj_end_logits": torch.zeros((ids.size(0), 2, 8), device=ids.device),
+        "subj_slot_logits": torch.zeros((ids.size(0), 2, 8, 9), device=ids.device),
+        "obj_slot_logits": torch.zeros((ids.size(0), 2, 8, 9), device=ids.device),
     }
     mock_build_decoder.return_value = mock_instance
 

@@ -160,10 +160,8 @@ def test_dynamic_kg_extractor_forward(mock_from_pretrained):
     assert outputs["rel_logits"].shape == (bs, 6, 5)  # num_relations + 1
     assert outputs["subj_type_logits"].shape == (bs, 6, 5)
     assert outputs["obj_type_logits"].shape == (bs, 6, 5)
-    assert outputs["subj_start_logits"].shape == (bs, 6, seq_len)
-    assert outputs["subj_end_logits"].shape == (bs, 6, seq_len)
-    assert outputs["obj_start_logits"].shape == (bs, 6, seq_len)
-    assert outputs["obj_end_logits"].shape == (bs, 6, seq_len)
+    assert outputs["subj_slot_logits"].shape == (bs, 6, 8, seq_len + 1)
+    assert outputs["obj_slot_logits"].shape == (bs, 6, 8, seq_len + 1)
 
 
 @patch("transformers.BertModel.from_pretrained")

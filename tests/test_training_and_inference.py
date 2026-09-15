@@ -32,13 +32,14 @@ def test_parse_triplet_string():
 
 class MockExtractor(nn.Module):
     def __init__(
-        self, num_queries=3, seq_len=8, num_relations=5, num_ent_types=7, **kwargs
+        self, num_queries=3, seq_len=8, num_relations=5, num_ent_types=7, num_token_slots=8, **kwargs
     ):
         super().__init__()
         self.num_queries = num_queries
         self.seq_len = seq_len
         self.num_relations = num_relations
         self.num_ent_types = num_ent_types
+        self.num_token_slots = num_token_slots
         self.dummy_param = nn.Parameter(torch.tensor([1.0], requires_grad=True))
         self.encoder = nn.Module()
         self.encoder.encoder = nn.Module()
@@ -60,20 +61,12 @@ class MockExtractor(nn.Module):
                 bs, self.num_queries, self.num_ent_types, device=dev
             )
             * self.dummy_param,
-            "subj_start_logits": torch.randn(
-                bs, self.num_queries, self.seq_len, device=dev
+            "subj_slot_logits": torch.randn(
+                bs, self.num_queries, self.num_token_slots, self.seq_len + 1, device=dev
             )
             * self.dummy_param,
-            "subj_end_logits": torch.randn(
-                bs, self.num_queries, self.seq_len, device=dev
-            )
-            * self.dummy_param,
-            "obj_start_logits": torch.randn(
-                bs, self.num_queries, self.seq_len, device=dev
-            )
-            * self.dummy_param,
-            "obj_end_logits": torch.randn(
-                bs, self.num_queries, self.seq_len, device=dev
+            "obj_slot_logits": torch.randn(
+                bs, self.num_queries, self.num_token_slots, self.seq_len + 1, device=dev
             )
             * self.dummy_param,
         }
