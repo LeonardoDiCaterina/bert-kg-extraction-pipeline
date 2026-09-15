@@ -83,11 +83,14 @@ class DynamicKGExtractorTypedQueries(nn.Module):
         self.subj_type_head = nn.Linear(d_model, num_ent_types)
         self.obj_type_head = nn.Linear(d_model, num_ent_types)
 
-        # Multi-Token Slot Networks for Entity Spans
+        # Multi-Token Slot Networks for Entity Spans (independent heads for subject and object)
         self.num_token_slots = num_token_slots
-        self.ptr_proj = nn.Linear(d_model, d_model)
-        self.slot_embed = nn.Embedding(num_token_slots, d_model)
-        self.null_bias = nn.Parameter(torch.zeros(num_token_slots))
+        self.subj_ptr_proj = nn.Linear(d_model, d_model)
+        self.obj_ptr_proj = nn.Linear(d_model, d_model)
+        self.subj_slot_embed = nn.Embedding(num_token_slots, d_model)
+        self.obj_slot_embed = nn.Embedding(num_token_slots, d_model)
+        self.subj_null_bias = nn.Parameter(torch.zeros(num_token_slots))
+        self.obj_null_bias = nn.Parameter(torch.zeros(num_token_slots))
 
     def forward(self, input_ids, attention_mask):
         # We don't use torch.no_grad() here because we may have unfrozen top layers
@@ -118,18 +121,18 @@ class DynamicKGExtractorTypedQueries(nn.Module):
         subj_slot_logits = []
         obj_slot_logits = []
         for k in range(self.num_token_slots):
-            slot_offset = self.slot_embed.weight[k]  # [d_model]
-            
             # Subject
-            subj_proj = self.ptr_proj(decoder_output + slot_offset)  # [B, Q, d_model]
-            subj_token_logits = torch.bmm(subj_proj, mem_t)          # [B, Q, seq_len]
-            subj_null = self.null_bias[k].expand(bs, self.num_queries, 1)
+            s_slot_offset = self.subj_slot_embed.weight[k]  # [d_model]
+            subj_proj = self.subj_ptr_proj(decoder_output + s_slot_offset)  # [B, Q, d_model]
+            subj_token_logits = torch.bmm(subj_proj, mem_t)                 # [B, Q, seq_len]
+            subj_null = self.subj_null_bias[k].expand(bs, self.num_queries, 1)
             subj_slot_logits.append(torch.cat([subj_token_logits, subj_null], dim=-1))
             
             # Object
-            obj_proj = self.ptr_proj(decoder_output + slot_offset)
-            obj_token_logits = torch.bmm(obj_proj, mem_t)
-            obj_null = self.null_bias[k].expand(bs, self.num_queries, 1)
+            o_slot_offset = self.obj_slot_embed.weight[k]  # [d_model]
+            obj_proj = self.obj_ptr_proj(decoder_output + o_slot_offset)    # [B, Q, d_model]
+            obj_token_logits = torch.bmm(obj_proj, mem_t)                  # [B, Q, seq_len]
+            obj_null = self.obj_null_bias[k].expand(bs, self.num_queries, 1)
             obj_slot_logits.append(torch.cat([obj_token_logits, obj_null], dim=-1))
 
         subj_slot_logits = torch.stack(subj_slot_logits, dim=2)  # [B, Q, K, seq_len+1]
