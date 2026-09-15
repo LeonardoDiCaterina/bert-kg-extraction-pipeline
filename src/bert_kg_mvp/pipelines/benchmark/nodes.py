@@ -300,6 +300,10 @@ def evaluate_model_on_test(
     obj_type_accuracy = obj_type_correct_count / max(span_matched_count, 1)
     rel_accuracy = rel_correct_count / max(span_matched_count, 1)
     
+    entity_precision = entity_tp / max((entity_tp + entity_fp), 1)
+    entity_recall = entity_tp / max((entity_tp + entity_fn), 1)
+    no_rel_rate = no_rel_queries / max(total_queries, 1)
+    
     avg_latency = float(sum(latencies) / max(len(latencies), 1))
     
     err_n = max(error_count, 1)
