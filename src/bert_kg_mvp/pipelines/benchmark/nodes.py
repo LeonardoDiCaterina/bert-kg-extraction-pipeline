@@ -136,10 +136,8 @@ def evaluate_model_on_test(
             rel_preds = torch.argmax(outputs["rel_logits"], dim=-1)
             subj_type_preds = torch.argmax(outputs["subj_type_logits"], dim=-1)
             obj_type_preds = torch.argmax(outputs["obj_type_logits"], dim=-1)
-            subj_start_preds = torch.argmax(outputs["subj_start_logits"], dim=-1)
-            subj_end_preds = torch.argmax(outputs["subj_end_logits"], dim=-1)
-            obj_start_preds = torch.argmax(outputs["obj_start_logits"], dim=-1)
-            obj_end_preds = torch.argmax(outputs["obj_end_logits"], dim=-1)
+            subj_slot_preds = torch.argmax(outputs["subj_slot_logits"], dim=-1)
+            obj_slot_preds = torch.argmax(outputs["obj_slot_logits"], dim=-1)
 
             for b in range(bs):
                 pred_set = set()
@@ -165,18 +163,19 @@ def evaluate_model_on_test(
                 for q in range(num_queries):
                     rel = rel_preds[b, q].item()
                     if rel != no_relation_idx:
-                        s_start = min(
-                            subj_start_preds[b, q].item(), subj_end_preds[b, q].item()
-                        )
-                        s_end = max(
-                            subj_start_preds[b, q].item(), subj_end_preds[b, q].item()
-                        )
-                        o_start = min(
-                            obj_start_preds[b, q].item(), obj_end_preds[b, q].item()
-                        )
-                        o_end = max(
-                            obj_start_preds[b, q].item(), obj_end_preds[b, q].item()
-                        )
+                        # Subject span
+                        s_slots = subj_slot_preds[b, q]
+                        s_active = s_slots[s_slots < outputs["subj_slot_logits"].size(-1) - 1]
+                        if len(s_active) == 0:
+                            continue
+                        s_start, s_end = s_active.min().item(), s_active.max().item()
+
+                        # Object span
+                        o_slots = obj_slot_preds[b, q]
+                        o_active = o_slots[o_slots < outputs["obj_slot_logits"].size(-1) - 1]
+                        if len(o_active) == 0:
+                            continue
+                        o_start, o_end = o_active.min().item(), o_active.max().item()
 
                         pred_subj = tokenizer.decode(
                             b_ids[b, s_start : s_end + 1], skip_special_tokens=True
