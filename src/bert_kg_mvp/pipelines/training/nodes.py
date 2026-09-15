@@ -181,7 +181,7 @@ def train_model(
         checkpointer = ModelCheckpointer(
             checkpoint_dir=checkpoint_config.get("dirpath", "data/06_models/checkpoints"),
             model_name="production_model",
-            mode="min",  # Minimizing training loss
+            mode="max",  # Maximizing validation F1 score
             save_top_k=checkpoint_config.get("save_top_k", 1),
             save_last=checkpoint_config.get("save_last", True),
         )

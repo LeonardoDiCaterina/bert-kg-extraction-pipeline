@@ -69,6 +69,12 @@ training:
   prefix_drop_prob: 0.15       # Context prefix dropping probability
   span_jitter_prob: 0.10       # Span boundary jittering probability
   ema_decay: 0.999             # Exponential Moving Average decay rate
+  checkpointing:
+    enabled: true
+    dirpath: "data/06_models/checkpoints"
+    save_top_k: 1
+    save_last: true
+    save_every_n_epochs: 100
 
 # ─── Model Inference & Validation ─────────────────────────────────────────────
 inference:
