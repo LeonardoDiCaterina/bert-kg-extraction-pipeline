@@ -100,6 +100,9 @@ def evaluate_model_on_test(
 
     true_positives, false_positives, false_negatives = 0, 0, 0
     span_true_positives, span_false_positives, span_false_negatives = 0, 0, 0
+    entity_tp, entity_fp, entity_fn = 0, 0, 0
+    total_queries = 0
+    no_rel_queries = 0
     
     type_correct_count = 0
     subj_type_correct_count = 0
@@ -160,9 +163,12 @@ def evaluate_model_on_test(
                     true_set.add((subj_str, st.item(), r.item(), obj_str, ot.item()))
 
                 num_queries = outputs["rel_logits"].shape[1]
+                total_queries += num_queries
                 for q in range(num_queries):
                     rel = rel_preds[b, q].item()
-                    if rel != no_relation_idx:
+                    if rel == no_relation_idx:
+                        no_rel_queries += 1
+                    else:
                         # Subject span — decode only the specific tokens pointed to by active slots
                         s_slots = subj_slot_preds[b, q]
                         s_active = s_slots[s_slots < outputs["subj_slot_logits"].size(-1) - 1]
@@ -199,6 +205,21 @@ def evaluate_model_on_test(
                 true_positives += len(tp_set)
                 false_positives += len(fp_set)
                 false_negatives += len(fn_set)
+                
+                # Entity tracking (span text + entity type)
+                pred_entities = set()
+                for p in pred_set:
+                    pred_entities.add((p[0], p[1]))  # Subject + SubjType
+                    pred_entities.add((p[3], p[4]))  # Object + ObjType
+                
+                true_entities = set()
+                for t in true_set:
+                    true_entities.add((t[0], t[1]))
+                    true_entities.add((t[3], t[4]))
+                    
+                entity_tp += len(pred_entities & true_entities)
+                entity_fp += len(pred_entities - true_entities)
+                entity_fn += len(true_entities - pred_entities)
                 
                 # Tier 1: Span matches
                 pred_span_set = {(p[0], p[3]) for p in pred_set}
@@ -311,11 +332,16 @@ def evaluate_model_on_test(
         "span_precision": span_precision,
         "span_recall": span_recall,
         "span_f1": span_f1,
+        "tuple_precision": precision,
+        "tuple_recall": recall,
+        "entity_precision": entity_precision,
+        "entity_recall": entity_recall,
         "type_accuracy": type_accuracy,
         "subj_type_accuracy": subj_type_accuracy,
         "obj_type_accuracy": obj_type_accuracy,
         "type_sample_size": span_matched_count,
         "rel_accuracy": rel_accuracy,
+        "no_relation_rate": no_rel_rate,
         "per_rel_tp": dict(per_rel_tp),
         "per_rel_fp": dict(per_rel_fp),
         "per_rel_fn": dict(per_rel_fn),
