@@ -89,6 +89,8 @@ class SetCriterion(nn.Module):
         self,
         num_relation_classes,
         num_entity_types,
+        num_token_slots=8,
+        null_coef=0.3,
         eos_coef=0.1,
         weight_dict=None,
         matcher_weight_dict=None,
@@ -97,6 +99,8 @@ class SetCriterion(nn.Module):
         super().__init__()
         self.num_relation_classes = num_relation_classes
         self.num_entity_types = num_entity_types
+        self.num_token_slots = num_token_slots
+        self.null_coef = null_coef
         self.eos_coef = eos_coef  # relative weight of the 'no_relation' (eos) class
         self.queries_per_rel = queries_per_rel
 
@@ -105,8 +109,8 @@ class SetCriterion(nn.Module):
             self.weight_dict = {
                 "loss_ce": 1.0,  # Relation classification
                 "loss_type": 1.0,  # Entity type classification
-                "loss_span": 1.0,  # Pointer network span extraction
-                "loss_giou": 1.0,  # 1D GIoU for span sequences
+                "loss_token": 1.5,  # Token slot assignment
+                "loss_contig": 0.3,  # Contiguity regularizer
             }
         else:
             self.weight_dict = weight_dict
@@ -116,7 +120,6 @@ class SetCriterion(nn.Module):
                 "loss_ce": 1.0,
                 "loss_type": 1.0,
                 "loss_span": 1.0,
-                "loss_giou": 0.0,  # Matcher doesn't use GIoU, only discrete probs
             }
         else:
             self.matcher_weight_dict = matcher_weight_dict
@@ -158,11 +161,9 @@ class SetCriterion(nn.Module):
         out_subj_type = outputs["subj_type_logits"].flatten(0, 1).softmax(-1)
         out_obj_type = outputs["obj_type_logits"].flatten(0, 1).softmax(-1)
 
-        # Output shapes: [bs * num_queries, num_classes] / [bs * num_queries, seq_len]
-        out_subj_start = outputs["subj_start_logits"].flatten(0, 1).softmax(-1)
-        out_subj_end = outputs["subj_end_logits"].flatten(0, 1).softmax(-1)
-        out_obj_start = outputs["obj_start_logits"].flatten(0, 1).softmax(-1)
-        out_obj_end = outputs["obj_end_logits"].flatten(0, 1).softmax(-1)
+        # Output shapes: [bs * num_queries, K, seq_len+1]
+        out_subj_slot = outputs["subj_slot_logits"].flatten(0, 1).softmax(-1)
+        out_obj_slot = outputs["obj_slot_logits"].flatten(0, 1).softmax(-1)
 
         indices = []
         for b in range(bs):
@@ -187,24 +188,22 @@ class SetCriterion(nn.Module):
                 + out_obj_type[b * num_queries : (b + 1) * num_queries, tgt_obj_types]
             )
 
-            # Span cost: -prob(target_start) - prob(target_end)
+            # Span cost proxy: max prob ANY slot assigns to each GT token
             tgt_subj_spans = targets[b]["subj_spans"]
             tgt_obj_spans = targets[b]["obj_spans"]
 
-            cost_span = -(
-                out_subj_start[
-                    b * num_queries : (b + 1) * num_queries, tgt_subj_spans[:, 0]
-                ]
-                + out_subj_end[
-                    b * num_queries : (b + 1) * num_queries, tgt_subj_spans[:, 1]
-                ]
-                + out_obj_start[
-                    b * num_queries : (b + 1) * num_queries, tgt_obj_spans[:, 0]
-                ]
-                + out_obj_end[
-                    b * num_queries : (b + 1) * num_queries, tgt_obj_spans[:, 1]
-                ]
-            )
+            q_subj = out_subj_slot[b * num_queries : (b + 1) * num_queries]  # [Q, K, L+1]
+            q_obj = out_obj_slot[b * num_queries : (b + 1) * num_queries]
+
+            cost_span = torch.zeros(num_queries, len(tgt_rels), device=out_subj_slot.device)
+            for g in range(len(tgt_rels)):
+                gt_subj_tokens = torch.arange(tgt_subj_spans[g, 0], tgt_subj_spans[g, 1] + 1, device=out_subj_slot.device)
+                gt_obj_tokens = torch.arange(tgt_obj_spans[g, 0], tgt_obj_spans[g, 1] + 1, device=out_subj_slot.device)
+                
+                # Coverage proxy
+                subj_cov = q_subj[:, :, gt_subj_tokens].max(dim=1).values.sum(dim=-1)
+                obj_cov = q_obj[:, :, gt_obj_tokens].max(dim=1).values.sum(dim=-1)
+                cost_span[:, g] = -(subj_cov + obj_cov)
 
             # Total cost matrix for this batch element
             C = (
@@ -295,43 +294,84 @@ class SetCriterion(nn.Module):
         ) / 2
         losses["loss_type"] = loss_type * self.weight_dict["loss_type"]
 
-        # 3. Span (Pointer Network) Loss (only applied to matched queries)
-        src_subj_start = outputs["subj_start_logits"][idx]
-        src_subj_end = outputs["subj_end_logits"][idx]
-        src_obj_start = outputs["obj_start_logits"][idx]
-        src_obj_end = outputs["obj_end_logits"][idx]
-
-        target_subj_spans = torch.cat(
-            [t["subj_spans"][J] for t, (_, J) in zip(targets, indices)]
+        # 3. Token Slot Assignment Loss (only on matched queries)
+        loss_token, loss_contig = self._compute_token_slot_loss(
+            outputs, targets, indices, idx, tgt_idx
         )
-        target_obj_spans = torch.cat(
-            [t["obj_spans"][J] for t, (_, J) in zip(targets, indices)]
-        )
-
-        loss_span = (
-            F.cross_entropy(src_subj_start, target_subj_spans[:, 0])
-            + F.cross_entropy(src_subj_end, target_subj_spans[:, 1])
-            + F.cross_entropy(src_obj_start, target_obj_spans[:, 0])
-            + F.cross_entropy(src_obj_end, target_obj_spans[:, 1])
-        ) / 4
-        losses["loss_span"] = loss_span * self.weight_dict["loss_span"]
-
-        # 4. 1D GIoU Loss (Soft-Argmax)
-        if "loss_giou" in self.weight_dict and self.weight_dict["loss_giou"] > 0:
-            seq_len = src_subj_start.size(1)
-            positions = torch.arange(seq_len, device=src_subj_start.device, dtype=torch.float32)
-
-            # Subject expected coordinates
-            exp_subj_start = torch.sum(F.softmax(src_subj_start, dim=-1) * positions, dim=-1)
-            exp_subj_end = torch.sum(F.softmax(src_subj_end, dim=-1) * positions, dim=-1)
-            loss_giou_subj = compute_1d_giou([exp_subj_start, exp_subj_end], target_subj_spans)
-
-            # Object expected coordinates
-            exp_obj_start = torch.sum(F.softmax(src_obj_start, dim=-1) * positions, dim=-1)
-            exp_obj_end = torch.sum(F.softmax(src_obj_end, dim=-1) * positions, dim=-1)
-            loss_giou_obj = compute_1d_giou([exp_obj_start, exp_obj_end], target_obj_spans)
-
-            loss_giou = (loss_giou_subj + loss_giou_obj) / 2
-            losses["loss_giou"] = loss_giou * self.weight_dict["loss_giou"]
+        losses["loss_token"] = loss_token * self.weight_dict["loss_token"]
+        losses["loss_contig"] = loss_contig * self.weight_dict["loss_contig"]
 
         return losses
+
+    def _compute_token_slot_loss(self, outputs, targets, indices, idx, tgt_idx):
+        K = self.num_token_slots
+        null_idx_val = outputs["subj_slot_logits"].size(-1) - 1
+
+        total_token_loss = 0.0
+        total_contig_loss = 0.0
+        num_matched = 0
+
+        for b, (src_indices, tgt_indices) in enumerate(indices):
+            if len(src_indices) == 0:
+                continue
+
+            for i in range(len(src_indices)):
+                q = src_indices[i]
+                t = tgt_indices[i]
+
+                for entity_key, span_key in [
+                    ("subj_slot_logits", "subj_spans"),
+                    ("obj_slot_logits", "obj_spans"),
+                ]:
+                    slot_logits = outputs[entity_key][b, q]   # [K, L+1]
+                    span = targets[b][span_key][t]             # [start, end]
+                    gt_tokens = torch.arange(span[0], span[1] + 1, device=slot_logits.device)
+
+                    # Truncate to K if entity is longer than K tokens
+                    gt_tokens = gt_tokens[:K]
+                    T = len(gt_tokens)
+
+                    # Build K targets: T real tokens + (K-T) nulls
+                    inner_targets = torch.full((K,), null_idx_val, device=slot_logits.device, dtype=torch.long)
+                    inner_targets[:T] = gt_tokens
+
+                    # Inner cost matrix [K, K]
+                    slot_probs = F.softmax(slot_logits, dim=-1)
+                    inner_cost = torch.zeros(K, K, device=slot_logits.device)
+                    for s in range(K):
+                        for t_inner in range(K):
+                            inner_cost[s, t_inner] = -torch.log(
+                                slot_probs[s, inner_targets[t_inner]] + 1e-8
+                            )
+
+                    # Solve inner Hungarian
+                    row_ind, col_ind = linear_sum_assignment(inner_cost.detach().cpu().numpy())
+
+                    # Compute CE loss on matched pairs
+                    for s, t_inner in zip(row_ind, col_ind):
+                        target_token = inner_targets[t_inner]
+                        weight = self.null_coef if t_inner >= T else 1.0
+                        total_token_loss += weight * F.cross_entropy(
+                            slot_logits[s].unsqueeze(0), target_token.unsqueeze(0)
+                        )
+
+                    num_matched += K
+
+                    # Contiguity penalty on active slots
+                    positions = torch.arange(null_idx_val, device=slot_logits.device, dtype=torch.float)
+                    active_probs = slot_probs[:, :null_idx_val]   # [K, L]
+                    null_prob = slot_probs[:, null_idx_val]         # [K]
+                    expected_pos = (active_probs * positions).sum(-1)  # [K]
+                    active_mask = (null_prob < 0.5).float()
+
+                    masked_pos = expected_pos + (1 - active_mask) * 1e6
+                    sorted_pos, _ = torch.sort(masked_pos)
+                    n_active = int(active_mask.sum().item())
+                    if n_active >= 2:
+                        gaps = sorted_pos[1:n_active] - sorted_pos[:n_active-1]
+                        total_contig_loss += ((gaps - 1.0) ** 2).mean()
+
+        loss_token = total_token_loss / max(num_matched, 1)
+        loss_contig = total_contig_loss / max(num_matched // K, 1)
+
+        return loss_token, loss_contig
