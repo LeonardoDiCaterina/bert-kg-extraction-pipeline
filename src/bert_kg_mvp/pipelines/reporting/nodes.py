@@ -87,6 +87,9 @@ def generate_evaluation_report(
         elif isinstance(checkpoint, torch.nn.Module):
             # Full model object from PickleDataset
             model = checkpoint
+            # Backward compatibility for models saved before dropout was added
+            if not hasattr(model, 'dropout'):
+                model.dropout = torch.nn.Dropout(0.3)
             logger.info("Full model object loaded successfully.")
         elif isinstance(checkpoint, dict):
             # Raw state dict
