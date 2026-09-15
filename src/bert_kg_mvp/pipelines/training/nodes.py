@@ -257,7 +257,6 @@ def train_model(
         # Track history
         history_record = {"epoch": epoch + 1, "total_loss": avg_total}
         history_record.update(avg_losses)
-        history.append(history_record)
         
         # Validation evaluation
         if val_processed_dataset is not None and (epoch + 1) % val_interval_epochs == 0:
@@ -278,6 +277,14 @@ def train_model(
             print(f"Validation Jaccard Median:   {val_metrics.get('jaccard_median', 0.0):.4f}")
             print(f"Validation Jaccard Std:      {val_metrics.get('jaccard_std', 0.0):.4f}\n")
             
+            history_record["val_strict_f1"] = val_metrics.get('strict_f1', 0.0)
+            history_record["val_span_f1"] = val_metrics.get('span_f1', 0.0)
+            history_record["val_type_accuracy"] = val_metrics.get('type_accuracy', 0.0)
+            history_record["val_med"] = val_metrics.get('mean_error_distance', 0.0)
+            history_record["val_jaccard_mean"] = val_metrics.get('jaccard_mean', 0.0)
+            history_record["val_jaccard_median"] = val_metrics.get('jaccard_median', 0.0)
+            history_record["val_jaccard_std"] = val_metrics.get('jaccard_std', 0.0)
+            
             if use_checkpointing:
                 checkpointer.save_checkpoint(
                     epoch=epoch + 1,
@@ -294,6 +301,8 @@ def train_model(
                 scheduler=None,
                 metric_value=avg_total
             )
+
+        history.append(history_record)
 
     # Save tracking history to CSV
     os.makedirs("data/08_reporting", exist_ok=True)
