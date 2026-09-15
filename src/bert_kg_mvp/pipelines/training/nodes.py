@@ -262,18 +262,9 @@ def train_model(
         # Validation evaluation
         if val_processed_dataset is not None and (epoch + 1) % val_interval_epochs == 0:
             print(f"\n--- Running Validation (Epoch {epoch + 1}) ---")
-            val_dataset = TensorDataset(
-                val_processed_dataset["input_ids"],
-                val_processed_dataset["attention_mask"],
-                val_processed_dataset["relations"],
-                val_processed_dataset["subj_types"],
-                val_processed_dataset["obj_types"],
-                val_processed_dataset["subj_spans"],
-                val_processed_dataset["obj_spans"],
-            )
             val_metrics = evaluate_model_on_test(
                 model=ema_model.module,
-                test_dataset=val_dataset,
+                test_dataset=val_processed_dataset,
                 tokenizer=tokenizer,
                 no_relation_idx=no_relation_idx,
                 device=device,
