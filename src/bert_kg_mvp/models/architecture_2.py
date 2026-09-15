@@ -30,6 +30,7 @@ class DynamicKGExtractor(nn.Module):
         num_queries=15,
         num_relations=5,
         num_ent_types=7,
+        num_token_slots=8,
         freeze_strategy="partial",
         unfrozen_top_layers=4,
     ):
@@ -80,11 +81,11 @@ class DynamicKGExtractor(nn.Module):
         self.subj_type_head = nn.Linear(d_model, num_ent_types)
         self.obj_type_head = nn.Linear(d_model, num_ent_types)
 
-        # Pointer Networks for Entity Spans
-        self.subj_start_ptr = nn.Linear(d_model, d_model)
-        self.subj_end_ptr = nn.Linear(d_model, d_model)
-        self.obj_start_ptr = nn.Linear(d_model, d_model)
-        self.obj_end_ptr = nn.Linear(d_model, d_model)
+        # Multi-Token Slot Networks for Entity Spans
+        self.num_token_slots = num_token_slots
+        self.ptr_proj = nn.Linear(d_model, d_model)
+        self.slot_embed = nn.Embedding(num_token_slots, d_model)
+        self.null_bias = nn.Parameter(torch.zeros(num_token_slots))
 
     def forward(self, input_ids, attention_mask):
         # We don't use torch.no_grad() here because we may have unfrozen top layers
@@ -109,24 +110,33 @@ class DynamicKGExtractor(nn.Module):
         subj_type_logits = self.subj_type_head(decoder_output)
         obj_type_logits = self.obj_type_head(decoder_output)
 
-        # Pointer Network Logits (dot product with encoder memory)
-        # memory shape: [B, seq_len, d_model] -> transposed: [B, d_model, seq_len]
-        # query shape: [B, num_queries, d_model]
-        mem_t = memory.transpose(1, 2)
+        # Multi-Token Slot Logits (dot product with encoder memory + null bias)
+        mem_t = memory.transpose(1, 2)  # [B, d_model, seq_len]
 
-        subj_start_logits = torch.bmm(
-            self.subj_start_ptr(decoder_output), mem_t
-        )  # [B, num_queries, seq_len]
-        subj_end_logits = torch.bmm(self.subj_end_ptr(decoder_output), mem_t)
-        obj_start_logits = torch.bmm(self.obj_start_ptr(decoder_output), mem_t)
-        obj_end_logits = torch.bmm(self.obj_end_ptr(decoder_output), mem_t)
+        subj_slot_logits = []
+        obj_slot_logits = []
+        for k in range(self.num_token_slots):
+            slot_offset = self.slot_embed.weight[k]  # [d_model]
+            
+            # Subject
+            subj_proj = self.ptr_proj(decoder_output + slot_offset)  # [B, Q, d_model]
+            subj_token_logits = torch.bmm(subj_proj, mem_t)          # [B, Q, seq_len]
+            subj_null = self.null_bias[k].expand(bs, self.num_queries, 1)
+            subj_slot_logits.append(torch.cat([subj_token_logits, subj_null], dim=-1))
+            
+            # Object
+            obj_proj = self.ptr_proj(decoder_output + slot_offset)
+            obj_token_logits = torch.bmm(obj_proj, mem_t)
+            obj_null = self.null_bias[k].expand(bs, self.num_queries, 1)
+            obj_slot_logits.append(torch.cat([obj_token_logits, obj_null], dim=-1))
+
+        subj_slot_logits = torch.stack(subj_slot_logits, dim=2)  # [B, Q, K, seq_len+1]
+        obj_slot_logits = torch.stack(obj_slot_logits, dim=2)
 
         return {
             "rel_logits": rel_logits,
             "subj_type_logits": subj_type_logits,
             "obj_type_logits": obj_type_logits,
-            "subj_start_logits": subj_start_logits,
-            "subj_end_logits": subj_end_logits,
-            "obj_start_logits": obj_start_logits,
-            "obj_end_logits": obj_end_logits,
+            "subj_slot_logits": subj_slot_logits,
+            "obj_slot_logits": obj_slot_logits,
         }
