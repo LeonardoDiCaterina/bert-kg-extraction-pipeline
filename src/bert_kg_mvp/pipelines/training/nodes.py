@@ -282,7 +282,10 @@ def train_model(
             print(f"Validation F1 (Exact Match): {val_metrics.get('strict_f1', 0.0):.4f}")
             print(f"Validation Span F1:          {val_metrics.get('span_f1', 0.0):.4f}")
             print(f"Validation Type Acc:         {val_metrics.get('type_accuracy', 0.0):.4f}")
-            print(f"Validation MED:              {val_metrics.get('mean_error_distance', 0.0):.4f}\n")
+            print(f"Validation MED:              {val_metrics.get('mean_error_distance', 0.0):.4f}")
+            print(f"Validation Jaccard Mean:     {val_metrics.get('jaccard_mean', 0.0):.4f}")
+            print(f"Validation Jaccard Median:   {val_metrics.get('jaccard_median', 0.0):.4f}")
+            print(f"Validation Jaccard Std:      {val_metrics.get('jaccard_std', 0.0):.4f}\n")
             
             if use_checkpointing:
                 checkpointer.save_checkpoint(
