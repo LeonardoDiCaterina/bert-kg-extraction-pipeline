@@ -96,17 +96,17 @@ benchmark:
       display_name: "RoBERTa Base"
   encoder: "nlpaueb/sec-bert-base"
   decoder_configs:
-    - decoder_type: "baseline"
-      display_name: "Baseline (15 queries)"
-      num_queries: 15
+    # - decoder_type: "baseline"
+    #   display_name: "Baseline (15 queries)"
+    #   num_queries: 15
     - decoder_type: "typed"
       display_name: "Option A (Relation-Typed)"
       num_queries: 15
       queries_per_rel: 3
-    - decoder_type: "disentangled"
-      display_name: "Option B (Disentangled)"
-      num_queries: 15
-      span_d_model: 256
+    # - decoder_type: "disentangled"
+    #   display_name: "Option B (Disentangled)"
+    #   num_queries: 15
+    #   span_d_model: 256
   epochs: 600
   learning_rate: 0.0001
   encoder_learning_rate: 0.00001
