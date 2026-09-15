@@ -4,41 +4,6 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 import numpy as np
 
-def compute_1d_giou(expected_coords, targets):
-    """
-    Computes the 1D Generalized Intersection over Union (GIoU) loss.
-    expected_coords: list of two tensors [expected_start, expected_end], each of shape (N,)
-    targets: tensor of shape (N, 2)
-    """
-    p_start, p_end = expected_coords[0], expected_coords[1]
-    t_start, t_end = targets[:, 0].float(), targets[:, 1].float()
-
-    # Ensure start <= end for valid intervals
-    p_min = torch.min(p_start, p_end)
-    p_max = torch.max(p_start, p_end)
-    
-    t_min = torch.min(t_start, t_end)
-    t_max = torch.max(t_start, t_end)
-
-    # Intersection
-    i_min = torch.max(p_min, t_min)
-    i_max = torch.min(p_max, t_max)
-    intersection = (i_max - i_min).clamp(min=0)
-
-    # Union
-    union = (p_max - p_min) + (t_max - t_min) - intersection + 1e-6
-
-    iou = intersection / union
-
-    # Smallest enclosing convex set
-    c_min = torch.min(p_min, t_min)
-    c_max = torch.max(p_max, t_max)
-    c_len = (c_max - c_min).clamp(min=1e-6)
-
-    giou = iou - (c_len - union) / c_len
-
-    return (1 - giou).mean()
-
 def multiclass_focal_loss(inputs, targets, alpha=None, gamma=2.0, reduction='mean', label_smoothing=0.0):
     """
     Focal loss for multi-class classification.
