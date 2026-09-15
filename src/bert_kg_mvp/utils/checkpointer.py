@@ -97,6 +97,8 @@ class ModelCheckpointer:
                 # Create a symlink or copy to standard 'best_model.pt' for easy downstream consumption
                 standard_best_path = os.path.join(self.checkpoint_dir, "best_model.pt")
                 shutil.copyfile(self.best_checkpoints[0][1], standard_best_path)
+                print(f"\\n[ModelCheckpointer] 🌟 New best model found! Metric: {self.best_metric_value:.4f}")
+                print(f"[ModelCheckpointer] 💾 Saved checkpoint to: {standard_best_path}\\n")
 
                 # Prune old checkpoints
                 if len(self.best_checkpoints) > self.save_top_k:
