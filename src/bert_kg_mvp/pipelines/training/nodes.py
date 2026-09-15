@@ -11,6 +11,7 @@ def train_model(
     tokenizer: Any,
     training_params: Dict[str, Any],
     schema_params: Optional[Dict[str, Any]] = None,
+    val_processed_dataset: Optional[Dict[str, torch.Tensor]] = None,
 ) -> Any:
     """
     Trains the DynamicKGExtractor model using DETR-style bipartite matching loss.
@@ -164,6 +165,9 @@ def train_model(
     import os
     
     history = []
+    val_interval_epochs = training_params.get("val_interval_epochs", 5)
+    
+    from bert_kg_mvp.pipelines.benchmark.nodes import evaluate_model_on_test
     
     from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
     ema_decay = training_params.get("ema_decay", 0.999)
@@ -255,7 +259,40 @@ def train_model(
         history_record.update(avg_losses)
         history.append(history_record)
         
-        if use_checkpointing:
+        # Validation evaluation
+        if val_processed_dataset is not None and (epoch + 1) % val_interval_epochs == 0:
+            print(f"\n--- Running Validation (Epoch {epoch + 1}) ---")
+            val_dataset = TensorDataset(
+                val_processed_dataset["input_ids"],
+                val_processed_dataset["attention_mask"],
+                val_processed_dataset["relations"],
+                val_processed_dataset["subj_types"],
+                val_processed_dataset["obj_types"],
+                val_processed_dataset["subj_spans"],
+                val_processed_dataset["obj_spans"],
+            )
+            val_metrics = evaluate_model_on_test(
+                model=ema_model.module,
+                test_dataset=val_dataset,
+                tokenizer=tokenizer,
+                no_relation_idx=no_relation_idx,
+                device=device,
+                batch_size=batch_size,
+            )
+            print(f"Validation F1 (Exact Match): {val_metrics.get('strict_f1', 0.0):.4f}")
+            print(f"Validation Span F1:          {val_metrics.get('span_f1', 0.0):.4f}")
+            print(f"Validation Type Acc:         {val_metrics.get('type_accuracy', 0.0):.4f}")
+            print(f"Validation MED:              {val_metrics.get('mean_error_distance', 0.0):.4f}\n")
+            
+            if use_checkpointing:
+                checkpointer.save_checkpoint(
+                    epoch=epoch + 1,
+                    model=ema_model,
+                    optimizer=optimizer,
+                    scheduler=None,
+                    metric_value=val_metrics.get('strict_f1', 0.0)
+                )
+        elif use_checkpointing:
             checkpointer.save_checkpoint(
                 epoch=epoch + 1,
                 model=ema_model,
