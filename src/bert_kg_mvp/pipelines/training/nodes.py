@@ -274,5 +274,5 @@ def train_model(
     # Load EMA weights into the raw model before returning
     model.load_state_dict(ema_model.module.state_dict())
     
-    # Return underlying uncompiled model if wrapped (for clean serialization)
-    return getattr(model, "_orig_mod", model)
+    # Return underlying uncompiled model's state dict (for clean serialization)
+    return getattr(model, "_orig_mod", model).state_dict()

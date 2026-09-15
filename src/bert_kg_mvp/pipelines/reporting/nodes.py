@@ -172,10 +172,19 @@ def generate_evaluation_report(
         for q in range(rel_logits.shape[0]):
             pred_r = rel_preds[q].item()
             if pred_r != no_relation_idx:
-                s_s = min(outputs["subj_start_logits"][0, q].argmax(), outputs["subj_end_logits"][0, q].argmax())
-                s_e = max(outputs["subj_start_logits"][0, q].argmax(), outputs["subj_end_logits"][0, q].argmax())
-                o_s = min(outputs["obj_start_logits"][0, q].argmax(), outputs["obj_end_logits"][0, q].argmax())
-                o_e = max(outputs["obj_start_logits"][0, q].argmax(), outputs["obj_end_logits"][0, q].argmax())
+                s_slots = outputs["subj_slot_logits"][0, q].argmax(dim=-1)
+                s_active = s_slots[s_slots < outputs["subj_slot_logits"].size(-1) - 1]
+                if len(s_active) > 0:
+                    s_s, s_e = s_active.min().item(), s_active.max().item()
+                else:
+                    s_s, s_e = 0, 0
+
+                o_slots = outputs["obj_slot_logits"][0, q].argmax(dim=-1)
+                o_active = o_slots[o_slots < outputs["obj_slot_logits"].size(-1) - 1]
+                if len(o_active) > 0:
+                    o_s, o_e = o_active.min().item(), o_active.max().item()
+                else:
+                    o_s, o_e = 0, 0
                 
                 pred_subj = tokenizer.decode(b_ids[0][s_s:s_e+1], skip_special_tokens=True)
                 pred_obj = tokenizer.decode(b_ids[0][o_s:o_e+1], skip_special_tokens=True)
@@ -205,10 +214,19 @@ def generate_evaluation_report(
     for q in range(outputs["rel_logits"].shape[1]):
         r = rel_preds[q].item()
         if r != no_relation_idx:
-            s_s = min(outputs["subj_start_logits"][0, q].argmax(), outputs["subj_end_logits"][0, q].argmax())
-            s_e = max(outputs["subj_start_logits"][0, q].argmax(), outputs["subj_end_logits"][0, q].argmax())
-            o_s = min(outputs["obj_start_logits"][0, q].argmax(), outputs["obj_end_logits"][0, q].argmax())
-            o_e = max(outputs["obj_start_logits"][0, q].argmax(), outputs["obj_end_logits"][0, q].argmax())
+            s_slots = outputs["subj_slot_logits"][0, q].argmax(dim=-1)
+            s_active = s_slots[s_slots < outputs["subj_slot_logits"].size(-1) - 1]
+            if len(s_active) > 0:
+                s_s, s_e = s_active.min().item(), s_active.max().item()
+            else:
+                s_s, s_e = 0, 0
+
+            o_slots = outputs["obj_slot_logits"][0, q].argmax(dim=-1)
+            o_active = o_slots[o_slots < outputs["obj_slot_logits"].size(-1) - 1]
+            if len(o_active) > 0:
+                o_s, o_e = o_active.min().item(), o_active.max().item()
+            else:
+                o_s, o_e = 0, 0
             
             sub = tokenizer.decode(b_ids[0][s_s:s_e+1], skip_special_tokens=True)
             obj = tokenizer.decode(b_ids[0][o_s:o_e+1], skip_special_tokens=True)

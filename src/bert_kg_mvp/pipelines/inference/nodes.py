@@ -4,6 +4,7 @@ import torch
 import pandas as pd
 
 from bert_kg_mvp.utils import parse_triplet_string
+from bert_kg_mvp.models import build_decoder
 
 # Backward-compatible re-export
 __all__ = ["parse_triplet_string", "run_mvp_inference"]
@@ -12,7 +13,7 @@ __all__ = ["parse_triplet_string", "run_mvp_inference"]
 def run_mvp_inference(
     processed_dataset: Dict[str, torch.Tensor],
     tokenizer: Any,
-    trained_model: Any,
+    trained_model_state_dict: Dict[str, Any],
     inference_params: Dict[str, Any],
     schema_params: Optional[Dict[str, Any]] = None,
 ) -> pd.DataFrame:
@@ -29,6 +30,28 @@ def run_mvp_inference(
         torch.mps.empty_cache()
     gc.collect()
 
+    encoder_name = inference_params.get("encoder_model_name", "nlpaueb/sec-bert-base")
+    decoder_type = inference_params.get("decoder_type", "baseline")
+    num_relations = len(schema_params.get("relation_types", ["has_metric", "produces", "operates_in", "reports_risk", "led_by"])) if schema_params else 5
+    num_ent_types = len(schema_params.get("entity_types", ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"])) if schema_params else 7
+
+    trained_model = build_decoder(
+        decoder_type=decoder_type,
+        encoder_model_name=encoder_name,
+        num_relations=num_relations,
+        num_ent_types=num_ent_types,
+        num_queries=inference_params.get("num_queries", 15),
+        num_layers=inference_params.get("decoder_num_layers", 4),
+        d_model=inference_params.get("d_model", 768),
+        freeze_strategy="partial",
+        unfrozen_top_layers=4,
+    )
+    
+    if hasattr(trained_model, "module"):
+        trained_model.module.load_state_dict(trained_model_state_dict)
+    else:
+        trained_model.load_state_dict(trained_model_state_dict)
+        
     trained_model.to(device)
     trained_model.eval()
 
