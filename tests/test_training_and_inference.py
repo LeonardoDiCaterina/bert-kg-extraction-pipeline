@@ -84,7 +84,9 @@ def make_dummy_dataset(n_samples=4, seq_len=8, max_triples=3):
     }
 
 
-def test_inference_pipeline_node():
+@patch("bert_kg_mvp.pipelines.inference.nodes.build_decoder")
+def test_inference_pipeline_node(mock_build_decoder):
+    mock_build_decoder.side_effect = lambda decoder_type, **kwargs: MockExtractor(**kwargs)
     dataset = make_dummy_dataset(n_samples=4, seq_len=8, max_triples=3)
     mock_tokenizer = MagicMock()
     mock_tokenizer.decode.return_value = "dummy entity"
@@ -94,7 +96,7 @@ def test_inference_pipeline_node():
     schema = {"relation_types": ["rel1", "rel2"]}
 
     # Test namespaced call signature
-    metrics_df = run_mvp_inference(dataset, mock_tokenizer, model, params, schema)
+    metrics_df = run_mvp_inference(dataset, mock_tokenizer, model.state_dict(), params, schema)
     assert isinstance(metrics_df, pd.DataFrame)
     assert "precision" in metrics_df.columns
     assert "recall" in metrics_df.columns
@@ -102,7 +104,7 @@ def test_inference_pipeline_node():
     assert len(metrics_df) == 1
 
     # Test legacy single-dict signature
-    metrics_legacy = run_mvp_inference(dataset, mock_tokenizer, model, params)
+    metrics_legacy = run_mvp_inference(dataset, mock_tokenizer, model.state_dict(), params)
     assert isinstance(metrics_legacy, pd.DataFrame)
 
 
