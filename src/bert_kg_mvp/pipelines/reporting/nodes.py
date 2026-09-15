@@ -66,8 +66,14 @@ def generate_evaluation_report(
     )
     
     import os
+    import pickle
     if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        except Exception as e:
+            logger.info(f"torch.load failed ({e}). Falling back to standard pickle.load...")
+            with open(checkpoint_path, "rb") as f:
+                checkpoint = pickle.load(f)
         
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             # Checkpoint from our ModelCheckpointer
