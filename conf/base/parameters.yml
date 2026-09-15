@@ -58,7 +58,7 @@ training:
   freeze_strategy: "partial"   # options: "all", "partial", "none"
   unfrozen_top_layers: 4
   d_model: 768
-  epochs: 10
+  epochs: 105
   learning_rate: 0.00005
   batch_size: 4
   gradient_accumulation_steps: 16
