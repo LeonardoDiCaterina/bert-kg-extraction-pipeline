@@ -157,3 +157,9 @@ evalbench:
 hallubench:
   sample_size: 50                # Number of predictions to feed into the simulated QA detector
 
+# ─── Reporting Pipeline ─────────────────────────────────────────────────────────
+reporting:
+  checkpoint_path: "data/06_models/checkpoints/baseline/best_model.pt"
+  encoder_name: "nlpaueb/sec-bert-base"
+  num_examples_to_print: 10
+  visualize_chunk_index: 0 # Which test-set chunk to draw the network graph for

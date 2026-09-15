@@ -38,3 +38,10 @@ benchmark_results_table:
   save_args:
     index: False
 
+evaluation_report_md:
+  type: text.TextDataset
+  filepath: data/08_reporting/evaluation_report.md
+
+knowledge_graph_png:
+  type: kedro_datasets.matplotlib.MatplotlibDataset
+  filepath: data/08_reporting/knowledge_graph.png

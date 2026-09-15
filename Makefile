@@ -115,6 +115,10 @@ run-benchmark-decoders:
 		echo "Decoder Benchmark started in background! PID: $$!"
 	@echo "Monitor live logs with: tail -f benchmark_decoders.log"
 
+report:
+	@echo "==> Generating Model Evaluation Report & Visualizations..."
+	$(GPU_ENV) $(KEDRO) run --pipeline reporting
+
 # --- Maintenance ---
 
 clean:
