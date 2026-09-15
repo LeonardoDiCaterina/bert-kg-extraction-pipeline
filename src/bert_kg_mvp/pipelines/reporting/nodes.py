@@ -67,7 +67,7 @@ def generate_evaluation_report(
     
     import os
     if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
         
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             # Checkpoint from our ModelCheckpointer
