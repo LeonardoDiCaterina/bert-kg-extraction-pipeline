@@ -98,9 +98,22 @@ def train_model(
         ],
         weight_decay=weight_decay
     )
+    
+    eos_coef = training_params.get("eos_coef", 0.05)
+    loss_weights = training_params.get("loss_weights", None)
+    matcher_weights = training_params.get("matcher_weights", None)
+    null_coef = training_params.get("null_coef", 0.3)
+    num_token_slots = training_params.get("num_token_slots", 8)
+    confidence_threshold = training_params.get("confidence_threshold", 0.5)
+
     criterion = SetCriterion(
         num_relation_classes=num_relations, 
         num_entity_types=num_ent_types,
+        num_token_slots=num_token_slots,
+        null_coef=null_coef,
+        eos_coef=eos_coef,
+        weight_dict=loss_weights,
+        matcher_weight_dict=matcher_weights,
         queries_per_rel=queries_per_rel if decoder_type == "typed" else None
     ).to(device)
 
@@ -123,6 +136,28 @@ def train_model(
     batch_size = training_params.get("batch_size", 4)
     accum_steps = training_params.get("gradient_accumulation_steps", 8)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    epochs = training_params.get("epochs", 10)
+    scheduler_type = training_params.get("scheduler", None)
+    total_opt_steps = (len(dataloader) // accum_steps + (1 if len(dataloader) % accum_steps != 0 else 0)) * epochs
+    warmup_epochs = training_params.get("warmup_epochs", 5)
+    warmup_steps = (len(dataloader) // accum_steps + (1 if len(dataloader) % accum_steps != 0 else 0)) * warmup_epochs
+
+    scheduler = None
+    if scheduler_type == "cosine":
+        from transformers import get_cosine_schedule_with_warmup
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer=optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_opt_steps,
+        )
+    elif scheduler_type == "linear":
+        from transformers import get_linear_schedule_with_warmup
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer=optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_opt_steps,
+        )
 
     model.train()
     if freeze_strategy == "all":
@@ -157,8 +192,6 @@ def train_model(
             print(
                 "torch.compile is not available in this PyTorch version. Proceeding uncompiled."
             )
-
-    epochs = training_params.get("epochs", 10)
 
     from collections import defaultdict
     import pandas as pd
@@ -225,6 +258,8 @@ def train_model(
 
             if (step + 1) % accum_steps == 0 or (step + 1) == len(dataloader):
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
                 ema_model.update_parameters(model)
                 optimizer.zero_grad()
 
@@ -272,6 +307,7 @@ def train_model(
                 no_relation_idx=no_relation_idx,
                 device=device,
                 batch_size=batch_size,
+                confidence_threshold=confidence_threshold,
             )
             print(f"Validation F1 (Exact Match): {val_metrics.get('strict_f1', 0.0):.4f}")
             print(f"Validation Tuple Prec:       {val_metrics.get('tuple_precision', 0.0):.4f}")
@@ -281,6 +317,10 @@ def train_model(
             print(f"Validation Span F1:          {val_metrics.get('span_f1', 0.0):.4f}")
             print(f"Validation Type Acc:         {val_metrics.get('type_accuracy', 0.0):.4f}")
             print(f"Validation No-Rel Rate:      {val_metrics.get('no_relation_rate', 0.0):.4f}")
+            print(f"Validation Active Query Rate:{val_metrics.get('active_query_rate', 0.0):.4f}")
+            print(f"Validation Mean FG Prob:     {val_metrics.get('mean_fg_prob', 0.0):.4f}")
+            print(f"Validation Max FG Prob:      {val_metrics.get('max_fg_prob', 0.0):.4f}")
+            print(f"Validation Mean No-Rel Prob: {val_metrics.get('mean_no_rel_prob', 0.0):.4f}")
             print(f"Validation MED:              {val_metrics.get('mean_error_distance', 0.0):.4f}")
             print(f"Validation Jaccard Mean:     {val_metrics.get('jaccard_mean', 0.0):.4f}")
             print(f"Validation Jaccard Median:   {val_metrics.get('jaccard_median', 0.0):.4f}")
@@ -292,6 +332,10 @@ def train_model(
             history_record["val_entity_prec"] = val_metrics.get('entity_precision', 0.0)
             history_record["val_entity_rec"] = val_metrics.get('entity_recall', 0.0)
             history_record["val_no_rel_rate"] = val_metrics.get('no_relation_rate', 0.0)
+            history_record["val_active_query_rate"] = val_metrics.get('active_query_rate', 0.0)
+            history_record["val_mean_fg_prob"] = val_metrics.get('mean_fg_prob', 0.0)
+            history_record["val_max_fg_prob"] = val_metrics.get('max_fg_prob', 0.0)
+            history_record["val_mean_no_rel_prob"] = val_metrics.get('mean_no_rel_prob', 0.0)
             history_record["val_span_f1"] = val_metrics.get('span_f1', 0.0)
             history_record["val_type_accuracy"] = val_metrics.get('type_accuracy', 0.0)
             history_record["val_med"] = val_metrics.get('mean_error_distance', 0.0)
@@ -304,7 +348,7 @@ def train_model(
                     epoch=epoch + 1,
                     model=ema_model,
                     optimizer=optimizer,
-                    scheduler=None,
+                    scheduler=scheduler,
                     metric_value=val_metrics.get('strict_f1', 0.0)
                 )
         elif use_checkpointing:
@@ -312,7 +356,7 @@ def train_model(
                 epoch=epoch + 1,
                 model=ema_model,
                 optimizer=optimizer,
-                scheduler=None,
+                scheduler=scheduler,
                 metric_value=avg_total
             )
 

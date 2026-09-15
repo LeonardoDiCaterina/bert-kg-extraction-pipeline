@@ -5,6 +5,7 @@ import pandas as pd
 
 from bert_kg_mvp.utils import parse_triplet_string
 from bert_kg_mvp.models import build_decoder
+from bert_kg_mvp.utils.decoding import decode_relation_predictions
 
 # Backward-compatible re-export
 __all__ = ["parse_triplet_string", "run_mvp_inference"]
@@ -67,6 +68,7 @@ def run_mvp_inference(
     # Dynamic parameterization
     sample_size_param = inference_params.get("sample_size", 20)
     batch_size = inference_params.get("batch_size", 4)
+    confidence_threshold = inference_params.get("confidence_threshold", 0.5)
 
     total_samples = len(processed_dataset["input_ids"])
     sample_size = min(sample_size_param, total_samples)
@@ -79,7 +81,7 @@ def run_mvp_inference(
     gt_obj_spans = processed_dataset["obj_spans"][-sample_size:]
 
     print(
-        f"Generating predictions for {sample_size} validation samples (Batch size: {batch_size})..."
+        f"Generating predictions for {sample_size} validation samples (Batch size: {batch_size}, Conf Threshold: {confidence_threshold})..."
     )
 
     true_positives, false_positives, false_negatives = 0, 0, 0
@@ -94,7 +96,11 @@ def run_mvp_inference(
 
             outputs = trained_model(input_ids, attention_mask)
 
-            rel_preds = torch.argmax(outputs["rel_logits"], dim=-1)
+            rel_preds = decode_relation_predictions(
+                outputs["rel_logits"],
+                no_relation_idx=no_relation_idx,
+                confidence_threshold=confidence_threshold,
+            )
             subj_slot_preds = torch.argmax(outputs["subj_slot_logits"], dim=-1)
             obj_slot_preds = torch.argmax(outputs["obj_slot_logits"], dim=-1)
 

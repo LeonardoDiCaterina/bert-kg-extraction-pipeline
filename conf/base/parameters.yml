@@ -53,15 +53,31 @@ teacher:
 # ─── Student Model Training ───────────────────────────────────────────────────
 training:
   encoder_model_name: "nlpaueb/sec-bert-base"
+  decoder_type: "baseline"     # options: "baseline", "typed", "disentangled"
   decoder_num_layers: 4
   num_queries: 15
+  confidence_threshold: 0.5    # Foreground threshold: query is kept if P(no_relation) <= threshold
+  val_interval_epochs: 5
   freeze_strategy: "partial"   # options: "all", "partial", "none"
   unfrozen_top_layers: 4
   d_model: 768
   epochs: 105
   learning_rate: 0.00005
+  scheduler: "cosine"          # options: "cosine", "linear", null
+  warmup_epochs: 5
   batch_size: 4
   gradient_accumulation_steps: 16
+  eos_coef: 0.05               # Background class down-weighting
+  null_coef: 0.3               # Null slot down-weighting
+  loss_weights:
+    loss_ce: 1.0
+    loss_type: 1.0
+    loss_token: 1.5
+    loss_contig: 0.3
+  matcher_weights:
+    loss_ce: 2.0
+    loss_type: 1.0
+    loss_span: 0.25
   compile_model: true          # Accelerate training & forward pass with torch.compile
   compile_mode: "default"      # options: "default", "reduce-overhead", "max-autotune"
   weight_decay: 0.05
@@ -80,6 +96,7 @@ training:
 inference:
   sample_size: 20
   batch_size: 4
+  confidence_threshold: 0.5
 
 # ─── Dataset Splitting (Company-Stratified) ────────────────────────────────────
 split:
@@ -130,6 +147,7 @@ benchmark:
     loss_type: 1.0
     loss_span: 0.25
   eos_coef: 0.05
+  confidence_threshold: 0.5
   dynamic_unfreeze_epoch: 20
   freeze_strategy: "partial"       # options: "all", "partial", "none"
   unfrozen_top_layers: 4

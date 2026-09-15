@@ -10,6 +10,7 @@ from torch.utils.data import TensorDataset
 from bert_kg_mvp.models import build_decoder
 from bert_kg_mvp.pipelines.benchmark.nodes import evaluate_model_on_test
 from bert_kg_mvp.pipelines.data_prep.nodes import prepare_training_data
+from bert_kg_mvp.utils.decoding import decode_relation_predictions
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,8 @@ def generate_evaluation_report(
     id_to_rel = {v: k for k, v in rel_to_id.items()}
     id_to_ent = {i: ent.lower() for i, ent in enumerate(schema_params.get("entity_types", ["org", "person", "product", "segment", "fin_metric", "risk_factor", "event"]))}
     
+    confidence_threshold = reporting_params.get("confidence_threshold", 0.5)
+
     logger.info("Running evaluation on test set...")
     val_metrics = evaluate_model_on_test(
         model=model,
@@ -116,6 +119,7 @@ def generate_evaluation_report(
         no_relation_idx=no_relation_idx,
         device=device,
         batch_size=16,
+        confidence_threshold=confidence_threshold,
     )
 
     # 6. Generate Markdown Report
@@ -136,6 +140,8 @@ def generate_evaluation_report(
     report_lines.append(f"| **Type Accuracy** | {val_metrics.get('type_accuracy', 0.0):.2f} |")
     report_lines.append(f"| **Relation Accuracy** | {val_metrics.get('relation_accuracy', 0.0):.2f} |")
     report_lines.append(f"| **No-Relation Rate** | {val_metrics.get('no_relation_rate', 0.0):.4f} |")
+    report_lines.append(f"| **Mean Foreground Prob** | {val_metrics.get('mean_fg_prob', 0.0):.4f} |")
+    report_lines.append(f"| **Active Query Rate** | {val_metrics.get('active_query_rate', 0.0):.4f} |")
     report_lines.append(f"| **Mean Error Distance (MED)** | {val_metrics.get('mean_error_distance', 0.0):.2f} |")
     report_lines.append(f"| **Jaccard Similarity (Mean)** | {val_metrics.get('jaccard_mean', 0.0):.2f} |")
     report_lines.append(f"| **Jaccard Similarity (Median)** | {val_metrics.get('jaccard_median', 0.0):.2f} |")
@@ -172,9 +178,12 @@ def generate_evaluation_report(
                 report_lines.append(f"| ✅ GT | {subj_str} | {st_str} | {r_str} | {obj_str} | {ot_str} |")
                 
         # Predictions
-        rel_logits = outputs["rel_logits"][0]
-        rel_preds = rel_logits.argmax(dim=-1)
-        for q in range(rel_logits.shape[0]):
+        rel_preds = decode_relation_predictions(
+            outputs["rel_logits"],
+            no_relation_idx=no_relation_idx,
+            confidence_threshold=confidence_threshold,
+        )[0]
+        for q in range(outputs["rel_logits"].shape[1]):
             pred_r = rel_preds[q].item()
             if pred_r != no_relation_idx:
                 s_slots = outputs["subj_slot_logits"][0, q].argmax(dim=-1)
@@ -207,7 +216,11 @@ def generate_evaluation_report(
     with torch.no_grad():
         outputs = model(b_ids, b_mask)
         
-    rel_preds = outputs["rel_logits"][0].argmax(dim=-1)
+    rel_preds = decode_relation_predictions(
+        outputs["rel_logits"],
+        no_relation_idx=no_relation_idx,
+        confidence_threshold=confidence_threshold,
+    )[0]
     extracted_triplets = set()
     
     for q in range(outputs["rel_logits"].shape[1]):

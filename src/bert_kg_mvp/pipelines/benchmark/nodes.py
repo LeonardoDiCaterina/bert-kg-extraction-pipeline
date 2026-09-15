@@ -13,6 +13,7 @@ from bert_kg_mvp.models.bipartite_loss import SetCriterion
 from bert_kg_mvp.pipelines.data_prep.nodes import prepare_training_data
 from bert_kg_mvp.utils.splitting import split_by_company
 from bert_kg_mvp.models import build_decoder
+from bert_kg_mvp.utils.decoding import decode_relation_predictions
 
 
 def split_dataset_node(
@@ -72,9 +73,11 @@ def evaluate_model_on_test(
     no_relation_idx: int,
     device: torch.device,
     batch_size: int = 16,
+    confidence_threshold: float = 0.5,
 ) -> Dict[str, float]:
     """
-    Evaluates the model on the test dataset and returns Exact-Match Strict F1 and latency.
+    Evaluates the model on the test dataset and returns Exact-Match Strict F1,
+    latency, and confidence diagnostics using DETR-style confidence thresholding.
     """
     import numpy as np
     
@@ -120,6 +123,8 @@ def evaluate_model_on_test(
     
     jaccard_scores = []
     latencies: List[float] = []
+    all_fg_probs = []
+    all_no_rel_probs = []
 
     with torch.no_grad():
         for i in range(0, total_samples, batch_size):
@@ -136,7 +141,16 @@ def evaluate_model_on_test(
             t1 = time.perf_counter()
             latencies.append((t1 - t0) * 1000.0 / max(1, bs))
 
-            rel_preds = torch.argmax(outputs["rel_logits"], dim=-1)
+            rel_preds = decode_relation_predictions(
+                outputs["rel_logits"],
+                no_relation_idx=no_relation_idx,
+                confidence_threshold=confidence_threshold,
+            )
+            rel_probs = torch.softmax(outputs["rel_logits"], dim=-1)
+            b_no_rel = rel_probs[..., no_relation_idx]
+            all_no_rel_probs.append(b_no_rel.detach().cpu())
+            all_fg_probs.append((1.0 - b_no_rel).detach().cpu())
+
             subj_type_preds = torch.argmax(outputs["subj_type_logits"], dim=-1)
             obj_type_preds = torch.argmax(outputs["obj_type_logits"], dim=-1)
             subj_slot_preds = torch.argmax(outputs["subj_slot_logits"], dim=-1)
@@ -324,6 +338,17 @@ def evaluate_model_on_test(
     else:
         j_mean = j_median = j_std = 0.0
 
+    if all_fg_probs:
+        cat_fg = torch.cat([p.flatten() for p in all_fg_probs])
+        cat_no_rel = torch.cat([p.flatten() for p in all_no_rel_probs])
+        mean_fg_prob = float(cat_fg.mean().item())
+        max_fg_prob = float(cat_fg.max().item())
+        mean_no_rel_prob = float(cat_no_rel.mean().item())
+    else:
+        mean_fg_prob = max_fg_prob = mean_no_rel_prob = 0.0
+
+    active_query_rate = float(1.0 - no_rel_rate)
+
     return {
         "strict_precision": precision,
         "strict_recall": recall,
@@ -346,6 +371,11 @@ def evaluate_model_on_test(
         "type_sample_size": span_matched_count,
         "rel_accuracy": rel_accuracy,
         "no_relation_rate": no_rel_rate,
+        "active_query_rate": active_query_rate,
+        "mean_fg_prob": mean_fg_prob,
+        "max_fg_prob": max_fg_prob,
+        "mean_no_rel_prob": mean_no_rel_prob,
+        "confidence_threshold": confidence_threshold,
         "per_rel_tp": dict(per_rel_tp),
         "per_rel_fp": dict(per_rel_fp),
         "per_rel_fn": dict(per_rel_fn),
@@ -424,6 +454,7 @@ def run_decoder_benchmark(
     num_queries = benchmark_params.get("num_queries", 15)
     decoder_num_layers = benchmark_params.get("decoder_num_layers", 4)
     d_model = benchmark_params.get("d_model", 768)
+    confidence_threshold = benchmark_params.get("confidence_threshold", 0.5)
 
     train_df = split_data["train"]
     val_df = split_data["val"]
@@ -670,6 +701,7 @@ def run_decoder_benchmark(
                     no_relation_idx=no_relation_idx,
                     device=device,
                     batch_size=batch_size,
+                    confidence_threshold=confidence_threshold,
                 )
                 val_f1 = val_metrics.get("strict_f1", 0.0)
                 print(
@@ -730,6 +762,7 @@ def run_decoder_benchmark(
             no_relation_idx=no_relation_idx,
             device=device,
             batch_size=batch_size,
+            confidence_threshold=confidence_threshold,
         )
 
         results.append(
@@ -846,6 +879,7 @@ def run_encoder_benchmark(
     num_queries = benchmark_params.get("num_queries", 15)
     decoder_num_layers = benchmark_params.get("decoder_num_layers", 4)
     d_model = benchmark_params.get("d_model", 768)
+    confidence_threshold = benchmark_params.get("confidence_threshold", 0.5)
 
     train_df = split_data["train"]
     val_df = split_data["val"]
@@ -1099,6 +1133,7 @@ def run_encoder_benchmark(
                     no_relation_idx=no_relation_idx,
                     device=device,
                     batch_size=batch_size,
+                    confidence_threshold=confidence_threshold,
                 )
                 val_f1 = val_metrics.get("strict_f1", 0.0)
                 print(
@@ -1174,6 +1209,7 @@ def run_encoder_benchmark(
             no_relation_idx=no_relation_idx,
             device=device,
             batch_size=batch_size,
+            confidence_threshold=confidence_threshold,
         )
 
         results.append(
