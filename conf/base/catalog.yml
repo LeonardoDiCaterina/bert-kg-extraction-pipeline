@@ -30,7 +30,7 @@ kg_inference_output:
 
 trained_model:
   type: pickle.PickleDataset
-  filepath: data/06_models/trained_kg_model.pkl
+  filepath: data/06_models/trained_kg_model.pt
 
 benchmark_results_table:
   type: pandas.CSVDataset
