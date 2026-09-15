@@ -271,9 +271,9 @@ class SetCriterion(nn.Module):
     def _compute_token_slot_loss(self, outputs, targets, indices, idx, tgt_idx):
         K = self.num_token_slots
         null_idx_val = outputs["subj_slot_logits"].size(-1) - 1
-
-        total_token_loss = 0.0
-        total_contig_loss = 0.0
+        device = outputs["subj_slot_logits"].device
+        total_token_loss = torch.tensor(0.0, device=device)
+        total_contig_loss = torch.tensor(0.0, device=device)
         num_matched = 0
 
         for b, (src_indices, tgt_indices) in enumerate(indices):

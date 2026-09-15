@@ -21,6 +21,9 @@ build/
 # ─── Kedro Generated Files ────────────────────────────────────────────────────
 .kedro.yml
 logs/
+*.log
+.viz/
+old_nodes.py
 
 # ─── OS & Editor ──────────────────────────────────────────────────────────────
 .DS_Store

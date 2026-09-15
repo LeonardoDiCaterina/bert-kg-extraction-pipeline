@@ -645,9 +645,9 @@ def run_decoder_benchmark(
                     ema_model.update_parameters(model)
                     optimizer.zero_grad()
                     
-                total_loss += loss.item()
+                total_loss += loss.item() if hasattr(loss, "item") else float(loss)
                 for k, v in loss_dict.items():
-                    epoch_losses[k] += v.item()
+                    epoch_losses[k] += v.item() if hasattr(v, "item") else float(v)
 
             avg_total = total_loss / len(train_loader)
             avg_losses = {k: v / len(train_loader) for k, v in epoch_losses.items()}
@@ -1074,9 +1074,9 @@ def run_encoder_benchmark(
                     ema_model.update_parameters(model)
                     optimizer.zero_grad()
                     
-                total_loss += loss.item()
+                total_loss += loss.item() if hasattr(loss, "item") else float(loss)
                 for k, v in loss_dict.items():
-                    epoch_losses[k] += v.item()
+                    epoch_losses[k] += v.item() if hasattr(v, "item") else float(v)
 
             avg_total = total_loss / len(train_loader)
             avg_losses = {k: v / len(train_loader) for k, v in epoch_losses.items()}

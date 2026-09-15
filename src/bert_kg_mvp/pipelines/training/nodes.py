@@ -228,14 +228,18 @@ def train_model(
                 ema_model.update_parameters(model)
                 optimizer.zero_grad()
 
-            total_loss += loss.item()
+            total_loss += loss.item() if hasattr(loss, "item") else float(loss)
             for k, v in loss_dict.items():
-                epoch_losses[k] += v.item()
+                epoch_losses[k] += v.item() if hasattr(v, "item") else float(v)
 
             if step % 100 == 0:
-                components_str = ", ".join([f"{k}: {v.item():.4f}" for k, v in loss_dict.items()])
+                components_str = ", ".join([
+                    f"{k}: {v.item():.4f}" if hasattr(v, "item") else f"{k}: {float(v):.4f}"
+                    for k, v in loss_dict.items()
+                ])
+                total_val = loss.item() if hasattr(loss, "item") else float(loss)
                 print(
-                    f"Epoch {epoch + 1}/{epochs} | Batch {step}/{len(dataloader)} | Total: {loss.item():.4f} | {components_str}"
+                    f"Epoch {epoch + 1}/{epochs} | Batch {step}/{len(dataloader)} | Total: {total_val:.4f} | {components_str}"
                 )
 
             if str(device) == "mps":
